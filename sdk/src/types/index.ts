@@ -28,7 +28,7 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
     name: "mainnet",
     chainId: 1,
     escrowAddress: "",          // not yet deployed on mainnet
-    insuranceAddress: "0x1d9D90d2652296A2c89E3802d45B1F2132b30076",
+    insuranceAddress: "",       // not yet deployed on mainnet
     usdcAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     rpcUrl: "https://eth.llamarpc.com",
   },
