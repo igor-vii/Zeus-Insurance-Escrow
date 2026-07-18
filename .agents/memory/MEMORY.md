@@ -1,0 +1,1 @@
+- [Escrow deployment](escrow-deployment.md) — ZeusEscrowBOT live on Base Sepolia; token = testnet USDC; getLogs must paginate in 2000-block chunks
