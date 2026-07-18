@@ -1,1 +1,3 @@
 - [Escrow deployment](escrow-deployment.md) — ZeusEscrowBOT live on Base Sepolia; token = testnet USDC; getLogs must paginate in 2000-block chunks
+- [BaseScan verification](basescan-verification.md) — BaseScan V1 API dead; must use Etherscan V2 URL with an etherscan.io key (not basescan.org key)
+- [Insurance deployment](insurance-deployment.md) — ZeusInsuranceV2 deployed and verified on Base Sepolia; SDK and env var set
