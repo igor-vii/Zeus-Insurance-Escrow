@@ -25,20 +25,22 @@ const config: HardhatUserConfig = {
   },
   networks: {
     hardhat: {},
-    baseSepolia: {
+    "base-sepolia": {
       url: BASE_SEPOLIA_RPC_URL,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
       chainId: 84532,
     },
   },
   etherscan: {
-    apiKey: BASESCAN_API_KEY,
+    apiKey: {
+      "base-sepolia": BASESCAN_API_KEY,
+    },
     customChains: [
       {
-        network: "baseSepolia",
+        network: "base-sepolia",
         chainId: 84532,
         urls: {
-          apiURL: "https://api.etherscan.io/v2/api?chainid=84532",
+          apiURL: "https://api-sepolia.basescan.org/api",
           browserURL: "https://sepolia.basescan.org",
         },
       },
