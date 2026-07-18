@@ -103,16 +103,20 @@ export interface Agreement {
     proof: string | null;
 }
 export interface Policy {
+    /** Policy ID (mapping key in the contract). */
     id: number;
     buyer: string;
     seller: string;
+    /** Coverage amount in USDC (6-decimal units). */
     amount: bigint;
-    timeout: number;
-    retries: number;
-    claims: number;
-    active: boolean;
-    claimed: boolean;
-    createdAt: number;
+    /** Premium paid in USDC (6-decimal units). */
+    premium: bigint;
+    /** Unix timestamp after which the buyer may claim a payout. */
+    retryDeadline: number;
+    maxRetries: number;
+    isActive: boolean;
+    isPaidOut: boolean;
+    isExpired: boolean;
 }
 export interface TransactionResult {
     hash: string;
