@@ -13,13 +13,33 @@ import {
   type Policy,
 } from "../types/index.js";
 
+// Matches the deployed ZeusInsuranceV2 contract exactly.
 const INSURANCE_ABI = [
-  "function createPolicy(address seller, uint256 amount, uint256 timeout, uint256 retries) external returns (uint256 policyId)",
-  "function claimPayout(uint256 policyId) external returns (bool)",
-  "function getPolicy(uint256 policyId) external view returns (tuple(uint256 id, address buyer, address seller, uint256 amount, uint256 timeout, uint256 retries, uint256 claims, bool active, bool claimed, uint256 createdAt))",
-  "event PolicyCreated(uint256 indexed policyId, address indexed buyer, address indexed seller, uint256 amount, uint256 timeout, uint256 retries)",
-  "event PayoutClaimed(uint256 indexed policyId, address indexed buyer, uint256 amount)",
+  // buyInsurance(seller, amount, timeoutSeconds, maxRetries)
+  "function buyInsurance(address seller, uint256 amount, uint256 timeoutSeconds, uint256 maxRetries) external",
+  "function claimPayout(uint256 policyId) external",
+  // getPolicy returns the on-chain Policy struct
+  "function getPolicy(uint256 policyId) external view returns (tuple(address buyer, address seller, uint256 amount, uint256 premium, uint256 retryDeadline, uint256 maxRetries, bool isActive, bool isPaidOut, bool isExpired))",
+  // Events
+  "event PolicyCreated(uint256 indexed policyId, address indexed buyer, address indexed seller, uint256 amount, uint256 premium, uint256 retryDeadline)",
+  "event PayoutExecuted(uint256 indexed policyId, uint256 amount)",
+  "event PolicyExpired(uint256 indexed policyId)",
 ] as const;
+
+const USDC_ABI = [
+  "function approve(address spender, uint256 amount) external returns (bool)",
+  "function allowance(address owner, address spender) external view returns (uint256)",
+] as const;
+
+/**
+ * Premium formula mirrors the contract:
+ *   premiumBps = 700 + (maxRetries − 1) × 200
+ *   premium    = amount × premiumBps / 10 000
+ */
+function calcPremium(amount: bigint, maxRetries: number): bigint {
+  const bps = 700n + (BigInt(maxRetries) - 1n) * 200n;
+  return (amount * bps) / 10_000n;
+}
 
 export class ZeusInsurance {
   constructor(private readonly client: ZeusClient) {}
@@ -63,8 +83,19 @@ export class ZeusInsurance {
   }
 
   /**
-   * Create a new insurance policy.
-   * Caller must have approved the insurance contract to spend `amount` of USDC.
+   * Purchase an insurance policy.
+   *
+   * This method automatically approves the USDC premium transfer before
+   * calling `buyInsurance` on the contract, so callers do not need a
+   * separate approve step.
+   *
+   * Premium formula (mirrors the contract):
+   *   premium = amount × (700 + (maxRetries − 1) × 200) / 10 000
+   *
+   * @param seller   - Counterparty address being insured against.
+   * @param amount   - Coverage amount in USDC (6-decimal bigint, e.g. 5_000_000n = 5 USDC).
+   * @param timeout  - Per-retry timeout window in seconds (e.g. 86_400 = 24 h).
+   * @param retries  - Number of retry windows allowed (1–10).
    */
   async createPolicy(
     seller: string,
@@ -80,10 +111,35 @@ export class ZeusInsurance {
       );
     }
 
-    const contract = this.getContract();
+    const network = this.client.getNetwork();
+    if (!network.usdcAddress) {
+      throw new ZeusContractError(`USDC address not configured for "${network.name}".`);
+    }
 
+    const contract = this.getContract();
+    const premium = calcPremium(parsed.data.amount, parsed.data.retries);
+
+    // --- Approve USDC premium transfer if allowance is insufficient ---
     try {
-      const tx = await contract.createPolicy(
+      const usdc = new Contract(network.usdcAddress, USDC_ABI, this.client.getRunner());
+      const owner = this.client.getAddress();
+      const allowance: bigint = await usdc.allowance(owner, network.insuranceAddress);
+      if (allowance < premium) {
+        const approveTx = await usdc.approve(network.insuranceAddress, premium);
+        await approveTx.wait();
+      }
+    } catch (err) {
+      if (err instanceof ZeusError) throw err;
+      throw new ZeusTransactionError(
+        `USDC approval failed: ${(err as Error).message}`,
+        undefined,
+        err,
+      );
+    }
+
+    // --- Call buyInsurance on-chain ---
+    try {
+      const tx = await contract.buyInsurance(
         parsed.data.seller,
         parsed.data.amount,
         BigInt(parsed.data.timeout),
@@ -121,7 +177,10 @@ export class ZeusInsurance {
     }
   }
 
-  /** Claim payout for an active policy. */
+  /**
+   * Claim a USDC payout once the retryDeadline has passed.
+   * Only the policy buyer can call this.
+   */
   async claimPayout(policyId: number): Promise<TransactionResult> {
     const parsed = ClaimPayoutSchema.safeParse({ policyId });
     if (!parsed.success) {
@@ -168,18 +227,18 @@ export class ZeusInsurance {
     const contract = this.getContract();
 
     try {
-      const result = await contract.getPolicy(BigInt(parsed.data.policyId));
+      const p = await contract.getPolicy(BigInt(parsed.data.policyId));
       return {
-        id: Number(result[0]),
-        buyer: String(result[1]),
-        seller: String(result[2]),
-        amount: BigInt(result[3]),
-        timeout: Number(result[4]),
-        retries: Number(result[5]),
-        claims: Number(result[6]),
-        active: Boolean(result[7]),
-        claimed: Boolean(result[8]),
-        createdAt: Number(result[9]),
+        id: parsed.data.policyId,
+        buyer: String(p.buyer),
+        seller: String(p.seller),
+        amount: BigInt(p.amount),
+        premium: BigInt(p.premium),
+        retryDeadline: Number(p.retryDeadline),
+        maxRetries: Number(p.maxRetries),
+        isActive: Boolean(p.isActive),
+        isPaidOut: Boolean(p.isPaidOut),
+        isExpired: Boolean(p.isExpired),
       };
     } catch (err) {
       if (err instanceof ZeusError) throw err;
