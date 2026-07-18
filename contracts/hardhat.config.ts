@@ -32,6 +32,7 @@ const config: HardhatUserConfig = {
     },
   },
   etherscan: {
+    // Etherscan V2 unified API — requires an etherscan.io key (not basescan.org)
     apiKey: BASESCAN_API_KEY,
     customChains: [
       {
