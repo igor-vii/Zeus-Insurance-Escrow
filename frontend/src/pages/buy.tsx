@@ -3,18 +3,16 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import {
-  useAccount, useReadContract, useWriteContract,
-  useWaitForTransactionReceipt, useSendTransaction,
+  useAccount, useWaitForTransactionReceipt, useSendTransaction,
 } from "wagmi";
 import { isAddress } from "viem";
 import { Shield, ArrowRight, Loader2, AlertTriangle, ShieldCheck, ServerCrash } from "lucide-react";
 import {
-  ZEUS_INSURANCE_ABI, ZEUS_INSURANCE_ADDRESS,
-  ERC20_ABI, USDC_ADDRESS,
   formatUsdc, parseUsdc, computePremium,
 } from "@/lib/contracts";
 import { useApiMode } from "@/lib/api-mode";
 import { fetchPrepareBuy, ApiError } from "@/lib/api-client";
+import { useZeusSDK } from "@/hooks/useZeusSDK";
 import { Button } from "@/components/ui/button";
 import {
   Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle,
@@ -41,11 +39,20 @@ export default function BuyInsurance() {
   const { address, isConnected } = useAccount();
   const { toast } = useToast();
   const { isApiMode } = useApiMode();
+  const { sdk, isReady: isSdkReady } = useZeusSDK();
 
   const [premiumBps, setPremiumBps] = useState(700n);
   const [premiumAmount, setPremiumAmount] = useState(0n);
   const [amountBigInt, setAmountBigInt] = useState(0n);
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // Direct mode — SDK handles both USDC approval and buyInsurance in one call
+  const [isBuyingSdk, setIsBuyingSdk] = useState(false);
+
+  // API mode — server-prepared calldata
+  const { sendTransactionAsync, isPending: isBuyingApi } = useSendTransaction();
+  const [apiBuyHash, setApiBuyHash] = useState<`0x${string}` | undefined>();
+  const { isLoading: isWaitingApiBuy, isSuccess: isApiBuySuccess } = useWaitForTransactionReceipt({ hash: apiBuyHash });
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -55,7 +62,7 @@ export default function BuyInsurance() {
   const watchAmount = form.watch("amount");
   const watchRetries = form.watch("retries");
 
-  // Premium preview — computed locally in both modes (same formula)
+  // Premium preview — computed locally (same formula as contract)
   useEffect(() => {
     if (watchAmount > 0 && watchRetries > 0) {
       try {
@@ -70,50 +77,17 @@ export default function BuyInsurance() {
     }
   }, [watchAmount, watchRetries]);
 
-  // USDC allowance — always direct (approve is a USDC call, not our contract)
-  const { data: allowance, refetch: refetchAllowance } = useReadContract({
-    address: USDC_ADDRESS,
-    abi: ERC20_ABI,
-    functionName: "allowance",
-    args: [address as `0x${string}`, ZEUS_INSURANCE_ADDRESS],
-    query: { enabled: !!address },
-  });
-
-  // Approve — always wagmi (USDC, not our contract)
-  const { writeContractAsync: writeApproveAsync, isPending: isApproving } = useWriteContract();
-  const [approveTxHash, setApproveTxHash] = useState<`0x${string}` | undefined>();
-  const { isLoading: isWaitingApprove, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({ hash: approveTxHash });
-
   useEffect(() => {
-    if (isApproveSuccess) {
-      refetchAllowance();
-      toast({ title: "USDC Approved", description: "You can now buy the policy." });
-    }
-  }, [isApproveSuccess, refetchAllowance, toast]);
-
-  // Buy — direct mode: writeContract
-  const { writeContractAsync: writeBuyAsync, isPending: isBuyingDirect } = useWriteContract();
-  const [directBuyHash, setDirectBuyHash] = useState<`0x${string}` | undefined>();
-  const { isLoading: isWaitingDirectBuy, isSuccess: isDirectBuySuccess } = useWaitForTransactionReceipt({ hash: directBuyHash });
-
-  // Buy — API mode: sendTransaction (raw calldata from server)
-  const { sendTransactionAsync, isPending: isBuyingApi } = useSendTransaction();
-  const [apiBuyHash, setApiBuyHash] = useState<`0x${string}` | undefined>();
-  const { isLoading: isWaitingApiBuy, isSuccess: isApiBuySuccess } = useWaitForTransactionReceipt({ hash: apiBuyHash });
-
-  const isBuying = isApiMode ? isBuyingApi : isBuyingDirect;
-  const isWaitingBuy = isApiMode ? isWaitingApiBuy : isWaitingDirectBuy;
-
-  useEffect(() => {
-    if (isDirectBuySuccess || isApiBuySuccess) {
+    if (isApiBuySuccess) {
       toast({ title: "Policy Created!", description: "Your insurance policy is now active." });
       form.reset({ ...form.getValues(), sellerAddress: "" });
       setApiError(null);
     }
-  }, [isDirectBuySuccess, isApiBuySuccess, form, toast]);
+  }, [isApiBuySuccess, form, toast]);
 
+  const isBuying = isApiMode ? isBuyingApi : isBuyingSdk;
+  const isWaiting = isApiMode ? isWaitingApiBuy : false; // SDK awaits receipt internally
   const totalCost = amountBigInt > 0 ? premiumAmount : 0n;
-  const needsApproval = allowance !== undefined && totalCost > 0 && allowance < totalCost;
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!isConnected) {
@@ -122,25 +96,8 @@ export default function BuyInsurance() {
     }
     setApiError(null);
 
-    // Step 1: approve if needed (always wagmi)
-    if (needsApproval) {
-      try {
-        const hash = await writeApproveAsync({
-          address: USDC_ADDRESS,
-          abi: ERC20_ABI,
-          functionName: "approve",
-          args: [ZEUS_INSURANCE_ADDRESS, totalCost],
-        });
-        setApproveTxHash(hash);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message.split("\n")[0] : "Unknown error";
-        toast({ variant: "destructive", title: "Approval Failed", description: msg });
-      }
-      return; // wait for receipt effect to re-enable submit
-    }
-
-    // Step 2: buy
     if (isApiMode) {
+      // API mode: server builds calldata, user signs raw tx
       try {
         const result = await fetchPrepareBuy({
           seller: values.sellerAddress,
@@ -160,22 +117,26 @@ export default function BuyInsurance() {
         }
       }
     } else {
+      // Direct mode: SDK handles USDC approval + buyInsurance in one call
+      if (!isSdkReady) {
+        toast({ variant: "destructive", title: "SDK not ready", description: "Wallet connection still initialising, please wait." });
+        return;
+      }
+      setIsBuyingSdk(true);
       try {
-        const hash = await writeBuyAsync({
-          address: ZEUS_INSURANCE_ADDRESS,
-          abi: ZEUS_INSURANCE_ABI,
-          functionName: "buyInsurance",
-          args: [
-            values.sellerAddress as `0x${string}`,
-            amountBigInt,
-            BigInt(values.timeoutSeconds),
-            BigInt(values.retries),
-          ],
-        });
-        setDirectBuyHash(hash);
+        const { policyId } = await sdk.insurance.createPolicy(
+          values.sellerAddress,
+          amountBigInt,
+          values.timeoutSeconds,
+          values.retries,
+        );
+        toast({ title: "Policy Created!", description: `Policy #${policyId} is now active.` });
+        form.reset({ ...form.getValues(), sellerAddress: "" });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message.split("\n")[0] : "Unknown error";
         toast({ variant: "destructive", title: "Purchase Failed", description: msg });
+      } finally {
+        setIsBuyingSdk(false);
       }
     }
   }
@@ -314,27 +275,15 @@ export default function BuyInsurance() {
             </CardContent>
 
             <CardFooter>
-              {needsApproval ? (
-                <Button
-                  type="submit"
-                  className="w-full font-mono uppercase tracking-wider"
-                  disabled={!isConnected || isApproving || isWaitingApprove}
-                >
-                  {(isApproving || isWaitingApprove)
-                    ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Approving...</>
-                    : <><Shield className="mr-2 h-4 w-4" /> Approve USDC</>}
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  className="w-full font-mono uppercase tracking-wider"
-                  disabled={!isConnected || isBuying || isWaitingBuy || amountBigInt === 0n}
-                >
-                  {(isBuying || isWaitingBuy)
-                    ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Confirming...</>
-                    : <><ArrowRight className="mr-2 h-4 w-4" /> Issue Policy</>}
-                </Button>
-              )}
+              <Button
+                type="submit"
+                className="w-full font-mono uppercase tracking-wider"
+                disabled={!isConnected || isBuying || isWaiting || amountBigInt === 0n}
+              >
+                {(isBuying || isWaiting)
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Confirming…</>
+                  : <><ArrowRight className="mr-2 h-4 w-4" /> Issue Policy</>}
+              </Button>
             </CardFooter>
           </form>
         </Form>

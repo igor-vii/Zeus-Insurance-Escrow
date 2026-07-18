@@ -1,18 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  useAccount, usePublicClient, useReadContracts,
-  useWaitForTransactionReceipt, useSendTransaction, useWriteContract,
+  useAccount, usePublicClient, useSendTransaction, useWaitForTransactionReceipt,
 } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
-import { parseAbiItem, decodeErrorResult, BaseError, ContractFunctionRevertedError } from "viem";
+import { parseAbiItem } from "viem";
 import {
   Shield, AlertTriangle, ExternalLink, Loader2, SearchX, ServerCrash, RefreshCw, Blocks,
 } from "lucide-react";
-import {
-  ZEUS_INSURANCE_ABI, ZEUS_INSURANCE_ADDRESS, ZEUS_RESERVE_ABI, formatUsdc,
-} from "@/lib/contracts";
+import { ZEUS_INSURANCE_ADDRESS, INSURANCE_DEPLOY_BLOCK, formatUsdc } from "@/lib/contracts";
 import { useApiMode } from "@/lib/api-mode";
 import { fetchPolicies, fetchPrepareClaim, type ApiPolicy, ApiError } from "@/lib/api-client";
+import { useZeusSDK } from "@/hooks/useZeusSDK";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -25,12 +23,6 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { formatDistanceToNow } from "date-fns";
 import { motion } from "framer-motion";
-
-type PolicyData = {
-  buyer: `0x${string}`; seller: `0x${string}`;
-  amount: bigint; premium: bigint; retryDeadline: bigint; maxRetries: bigint;
-  isActive: boolean; isPaidOut: boolean; isExpired: boolean;
-};
 
 type NormalizedPolicy = {
   id: string;
@@ -56,40 +48,29 @@ function apiPolicyToNormalized(p: ApiPolicy): NormalizedPolicy {
   };
 }
 
-/** Decode a revert reason from a wagmi/viem BaseError for display. */
+/** Decode a friendly error message from SDK or API errors. */
 function decodeClaimError(err: unknown): string {
-  if (!(err instanceof BaseError)) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[claim] Unknown error:", err);
-    return msg.split("\n")[0];
+  if (!(err instanceof Error)) return String(err);
+  const msg = err.message;
+  // Match known contract revert strings embedded in the SDK error message
+  const friendly: Record<string, string> = {
+    "Only buyer can claim": "Only the policy buyer can claim this.",
+    "Policy not active": "Policy is not active.",
+    "Already paid out": "This claim has already been paid out.",
+    "Policy expired": "Policy has expired.",
+    "Timeout not yet reached": "Policy is not yet claimable — deadline hasn't passed.",
+    "ClaimNotApproved": "Policy is not yet claimable — deadline hasn't passed or policy is not active.",
+    "ClaimAlreadyFulfilled": "This claim has already been paid out.",
+    "DailyPayoutLimitExceeded": "Daily payout limit exceeded. Try again tomorrow.",
+    "InsufficientReserve": "Reserve doesn't have enough funds for this payout.",
+    "ReserveBelowThreshold": "Reserve is below the minimum threshold.",
+    "NotInsuranceContract": "Caller is not the insurance contract (internal error).",
+  };
+  for (const [key, label] of Object.entries(friendly)) {
+    if (msg.includes(key)) return label;
   }
-
-  // Walk the cause chain looking for a ContractFunctionRevertedError
-  const revert = err.walk((e) => e instanceof ContractFunctionRevertedError);
-  if (revert instanceof ContractFunctionRevertedError) {
-    const name = revert.data?.errorName ?? revert.reason ?? "Contract reverted";
-    const args = revert.data?.args;
-    console.error("[claim] Contract revert:", name, args ?? "");
-    // Friendly messages for known reserve errors
-    const friendly: Record<string, string> = {
-      ClaimNotApproved: "Policy is not yet claimable — deadline hasn't passed or policy is not active.",
-      ClaimAlreadyFulfilled: "This claim has already been paid out.",
-      DailyPayoutLimitExceeded: "Daily payout limit exceeded. Try again tomorrow.",
-      InsufficientReserve: "Reserve doesn't have enough funds for this payout.",
-      ReserveBelowThreshold: "Reserve is below the minimum threshold.",
-      NotInsuranceContract: "Caller is not the insurance contract (internal error).",
-    };
-    return friendly[name] ?? `${name}${args ? ": " + JSON.stringify(args, (_k, v) => typeof v === "bigint" ? v.toString() : v) : ""}`;
-  }
-
-  // User rejected
-  if (err.message.includes("User rejected") || err.message.includes("user rejected")) {
-    console.info("[claim] User rejected transaction");
-    return "Transaction rejected in wallet.";
-  }
-
-  console.error("[claim] BaseError:", err.shortMessage ?? err.message, err);
-  return err.shortMessage ?? err.message.split("\n")[0];
+  if (msg.includes("rejected") || msg.includes("user rejected")) return "Transaction rejected in wallet.";
+  return msg.split("\n")[0];
 }
 
 export default function Policies() {
@@ -97,6 +78,7 @@ export default function Policies() {
   const publicClient = usePublicClient();
   const { toast } = useToast();
   const { isApiMode } = useApiMode();
+  const { sdk, isReady: isSdkReady } = useZeusSDK();
 
   const [currentTime, setCurrentTime] = useState(Math.floor(Date.now() / 1000));
   const [claimError, setClaimError] = useState<string | null>(null);
@@ -107,7 +89,7 @@ export default function Policies() {
     return () => clearInterval(timer);
   }, []);
 
-  // ─── Direct mode: event log scan + multicall ──────────────────────────────
+  // ─── Direct mode: event log scan ──────────────────────────────────────────
   const [policyIds, setPolicyIds] = useState<bigint[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [syncedBlock, setSyncedBlock] = useState<bigint | null>(null);
@@ -121,16 +103,15 @@ export default function Policies() {
     setScanProgress(null);
     try {
       const CHUNK = 2000n;
-      const DEPLOY_BLOCK = 43_540_426n;
       const latestBlock = await publicClient.getBlockNumber();
-      const totalBlocks = latestBlock - DEPLOY_BLOCK + 1n;
+      const totalBlocks = latestBlock - INSURANCE_DEPLOY_BLOCK + 1n;
       const event = parseAbiItem(
         "event PolicyCreated(uint256 indexed policyId, address indexed buyer, address indexed seller, uint256 amount, uint256 premium, uint256 retryDeadline)",
       );
       const allLogs: Awaited<ReturnType<typeof publicClient.getLogs>> = [];
-      let cursor = DEPLOY_BLOCK;
+      let cursor = INSURANCE_DEPLOY_BLOCK;
 
-      console.info(`[policies] Scanning ${totalBlocks.toLocaleString()} blocks (${DEPLOY_BLOCK}–${latestBlock}) in chunks of ${CHUNK}`);
+      console.info(`[policies] Scanning ${totalBlocks.toLocaleString()} blocks (${INSURANCE_DEPLOY_BLOCK}–${latestBlock}) in chunks of ${CHUNK}`);
 
       while (cursor <= latestBlock) {
         const chunkEnd = cursor + CHUNK - 1n < latestBlock ? cursor + CHUNK - 1n : latestBlock;
@@ -142,13 +123,14 @@ export default function Policies() {
           toBlock: chunkEnd,
         });
         allLogs.push(...chunk);
-        const scanned = chunkEnd - DEPLOY_BLOCK + 1n;
+        const scanned = chunkEnd - INSURANCE_DEPLOY_BLOCK + 1n;
         setScanProgress({ scanned, total: totalBlocks });
         cursor = chunkEnd + 1n;
       }
 
       const ids = allLogs
-        .map((l) => l.args.policyId)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((l) => (l as any).args?.policyId as bigint | undefined)
         .filter((id): id is bigint => id !== undefined);
       const unique = [...new Set(ids)].sort((a, b) => (b > a ? 1 : -1));
       console.info(`[policies] Found ${unique.length} policy IDs:`, unique.map(String));
@@ -172,17 +154,18 @@ export default function Policies() {
     fetchLogs();
   }, [fetchLogs, directRefetchKey]);
 
-  const { data: policiesData, isLoading: isLoadingPolicies, refetch: refetchDirect } = useReadContracts({
-    contracts: policyIds.map((id) => ({
-      address: ZEUS_INSURANCE_ADDRESS,
-      abi: ZEUS_INSURANCE_ABI,
-      functionName: "getPolicy",
-      args: [id],
-    })),
-    query: { enabled: !isApiMode && policyIds.length > 0 },
+  // ─── Direct mode: batch read policies via SDK ──────────────────────────────
+  const {
+    data: directPoliciesData,
+    isLoading: isLoadingPolicies,
+    refetch: refetchDirect,
+  } = useQuery({
+    queryKey: ["direct-policies", policyIds.map(String), directRefetchKey],
+    queryFn: () => Promise.all(policyIds.map((id) => sdk.insurance.getPolicy(Number(id)))),
+    enabled: !isApiMode && policyIds.length > 0 && isSdkReady,
   });
 
-  // ─── API mode: single fetch ───────────────────────────────────────────────
+  // ─── API mode: single fetch ────────────────────────────────────────────────
   const {
     data: apiPoliciesData,
     isLoading: isLoadingApi,
@@ -195,36 +178,24 @@ export default function Policies() {
     retry: 1,
   });
 
-  // ─── Direct mode claim — useWriteContract at top level (required by Rules of Hooks) ─
-  const {
-    writeContractAsync,
-    isPending: isWritePending,
-    data: directClaimHash,
-  } = useWriteContract();
-
-  const { isLoading: isWaitingDirectClaim, isSuccess: isDirectClaimSuccess } =
-    useWaitForTransactionReceipt({ hash: directClaimHash });
-
   // ─── API mode claim — sendTransaction ─────────────────────────────────────
   const { sendTransactionAsync, isPending: isClaimingApi } = useSendTransaction();
   const [apiClaimHash, setApiClaimHash] = useState<`0x${string}` | undefined>();
   const { isLoading: isWaitingApiClaim, isSuccess: isApiClaimSuccess } =
     useWaitForTransactionReceipt({ hash: apiClaimHash });
 
-  const isClaiming = (isApiMode ? isClaimingApi : isWritePending) || (isApiMode ? isWaitingApiClaim : isWaitingDirectClaim);
-
   useEffect(() => {
-    if (isDirectClaimSuccess || isApiClaimSuccess) {
+    if (isApiClaimSuccess) {
       toast({ title: "Claim Successful", description: "Payout has been processed from the reserve." });
       setClaimError(null);
       setClaimingId(null);
-      if (isApiMode) refetchApi();
-      else {
-        refetchDirect();
-        setDirectRefetchKey((k) => k + 1);
-      }
+      refetchApi();
     }
-  }, [isDirectClaimSuccess, isApiClaimSuccess, toast, isApiMode, refetchApi, refetchDirect]);
+  }, [isApiClaimSuccess, toast, refetchApi]);
+
+  const isClaiming = isApiMode
+    ? (isClaimingApi || isWaitingApiClaim)
+    : claimingId !== null;
 
   async function handleClaim(idStr: string, idBigInt?: bigint) {
     setClaimError(null);
@@ -233,10 +204,8 @@ export default function Policies() {
     if (isApiMode) {
       try {
         const result = await fetchPrepareClaim(idStr);
-        console.info("[claim] API calldata prepared:", result);
         const hash = await sendTransactionAsync({ to: result.to, data: result.data });
         setApiClaimHash(hash);
-        console.info("[claim] API tx sent:", hash);
       } catch (e: unknown) {
         const msg = e instanceof ApiError
           ? `API error ${e.status}: ${e.message}`
@@ -246,24 +215,24 @@ export default function Policies() {
         toast({ variant: "destructive", title: "Claim Failed", description: msg });
       }
     } else {
-      // Direct mode — use writeContractAsync from useWriteContract hook
-      if (idBigInt === undefined) {
-        const msg = "Policy ID missing — please refresh the page.";
+      // Direct mode — SDK handles the full claim tx and awaits receipt
+      const policyId = idBigInt !== undefined ? Number(idBigInt) : Number(idStr);
+      if (!isSdkReady) {
+        const msg = "SDK not ready — please wait for wallet connection to initialise.";
         setClaimError(msg);
         setClaimingId(null);
         toast({ variant: "destructive", title: "Claim Failed", description: msg });
         return;
       }
-      console.info("[claim] Direct mode — calling claimPayout(", idBigInt.toString(), ") on", ZEUS_INSURANCE_ADDRESS);
+      console.info("[claim] SDK direct mode — claimPayout(", policyId, ")");
       try {
-        const hash = await writeContractAsync({
-          address: ZEUS_INSURANCE_ADDRESS,
-          abi: ZEUS_INSURANCE_ABI,
-          functionName: "claimPayout",
-          args: [idBigInt],
-        });
-        console.info("[claim] Direct tx sent:", hash);
-        // directClaimHash is now set via useWriteContract, receipt tracked above
+        await sdk.insurance.claimPayout(policyId);
+        console.info("[claim] Claim successful for policy", policyId);
+        toast({ title: "Claim Successful", description: "Payout has been processed from the reserve." });
+        setClaimError(null);
+        setClaimingId(null);
+        refetchDirect();
+        setDirectRefetchKey((k) => k + 1);
       } catch (e: unknown) {
         const msg = decodeClaimError(e);
         setClaimError(msg);
@@ -286,22 +255,16 @@ export default function Policies() {
   // Build normalized policy list
   const normalizedPolicies: NormalizedPolicy[] = isApiMode
     ? (apiPoliciesData?.policies ?? []).map(apiPolicyToNormalized)
-    : (policiesData ?? [])
-        .map((result, idx) => {
-          if (result.status !== "success") return null;
-          const p = result.result as unknown as PolicyData;
-          return {
-            id: policyIds[idx].toString(),
-            seller: p.seller,
-            amount: p.amount,
-            premium: p.premium,
-            retryDeadline: p.retryDeadline,
-            isActive: p.isActive,
-            isPaidOut: p.isPaidOut,
-            isExpired: p.isExpired,
-          } satisfies NormalizedPolicy;
-        })
-        .filter((p): p is NormalizedPolicy => p !== null);
+    : (directPoliciesData ?? []).map((p, idx) => ({
+        id: policyIds[idx].toString(),
+        seller: p.seller,
+        amount: p.amount,
+        premium: p.premium,
+        retryDeadline: BigInt(p.retryDeadline),
+        isActive: p.isActive,
+        isPaidOut: p.isPaidOut,
+        isExpired: p.isExpired,
+      }));
 
   const isLoading = isApiMode ? isLoadingApi : (isLoadingLogs || isLoadingPolicies);
   const hasNoPolicies = !isLoading && normalizedPolicies.length === 0;
@@ -311,7 +274,6 @@ export default function Policies() {
       : "API unavailable"
     : null;
 
-  // Scan progress percentage (0–100)
   const progressPct = scanProgress
     ? Math.min(100, Number((scanProgress.scanned * 100n) / scanProgress.total))
     : 0;
@@ -353,7 +315,6 @@ export default function Policies() {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          {/* Sync status indicator */}
           {!isApiMode && (
             <div className="flex flex-col items-end gap-1.5">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-card/60 text-xs font-mono">
@@ -361,9 +322,7 @@ export default function Policies() {
                 {isLoadingLogs ? (
                   <span className="text-muted-foreground flex items-center gap-1.5">
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    {scanProgress
-                      ? `${progressPct}% scanned`
-                      : "Scanning chain…"}
+                    {scanProgress ? `${progressPct}% scanned` : "Scanning chain…"}
                   </span>
                 ) : syncedBlock !== null ? (
                   <>
@@ -386,8 +345,6 @@ export default function Policies() {
                   <span className="text-muted-foreground/60">Not synced</span>
                 )}
               </div>
-
-              {/* Progress bar — only during scan */}
               {isLoadingLogs && scanProgress && (
                 <div className="w-48">
                   <Progress value={progressPct} className="h-1" />
@@ -396,14 +353,10 @@ export default function Policies() {
             </div>
           )}
 
-          {/* Refresh button */}
           <Button
             onClick={() => {
-              if (isApiMode) {
-                refetchApi();
-              } else {
-                setDirectRefetchKey((k) => k + 1);
-              }
+              if (isApiMode) refetchApi();
+              else setDirectRefetchKey((k) => k + 1);
             }}
             variant="outline" size="sm"
             disabled={isLoadingLogs}

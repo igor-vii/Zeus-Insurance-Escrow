@@ -1,8 +1,5 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.ZeusInsurance = void 0;
-const ethers_1 = require("ethers");
-const index_js_1 = require("../types/index.js");
+import { Contract, Interface } from "ethers";
+import { CreatePolicySchema, ClaimPayoutSchema, GetPolicySchema, ZeusError, ZeusNotConnectedError, ZeusValidationError, ZeusTransactionError, ZeusContractError, } from "../types/index.js";
 // Matches the deployed ZeusInsuranceV2 contract exactly.
 const INSURANCE_ABI = [
     // buyInsurance(seller, amount, timeoutSeconds, maxRetries)
@@ -28,19 +25,19 @@ function calcPremium(amount, maxRetries) {
     const bps = 700n + (BigInt(maxRetries) - 1n) * 200n;
     return (amount * bps) / 10000n;
 }
-class ZeusInsurance {
+export class ZeusInsurance {
     client;
     constructor(client) {
         this.client = client;
     }
     getContract() {
         if (!this.client.isReady())
-            throw new index_js_1.ZeusNotConnectedError();
+            throw new ZeusNotConnectedError();
         const network = this.client.getNetwork();
         if (!network.insuranceAddress) {
-            throw new index_js_1.ZeusContractError(`ZeusInsuranceV2 is not deployed on "${network.name}" yet.`);
+            throw new ZeusContractError(`ZeusInsuranceV2 is not deployed on "${network.name}" yet.`);
         }
-        return new ethers_1.Contract(network.insuranceAddress, INSURANCE_ABI, this.client.getRunner());
+        return new Contract(network.insuranceAddress, INSURANCE_ABI, this.client.getRunner());
     }
     buildTxResult(receipt) {
         return {
@@ -51,7 +48,7 @@ class ZeusInsurance {
         };
     }
     parseEvent(receipt, eventName) {
-        const iface = new ethers_1.Interface(INSURANCE_ABI);
+        const iface = new Interface(INSURANCE_ABI);
         for (const log of receipt.logs) {
             try {
                 const parsed = iface.parseLog({ topics: [...log.topics], data: log.data });
@@ -81,19 +78,19 @@ class ZeusInsurance {
      * @param retries  - Number of retry windows allowed (1–10).
      */
     async createPolicy(seller, amount, timeout, retries) {
-        const parsed = index_js_1.CreatePolicySchema.safeParse({ seller, amount, timeout, retries });
+        const parsed = CreatePolicySchema.safeParse({ seller, amount, timeout, retries });
         if (!parsed.success) {
-            throw new index_js_1.ZeusValidationError("Invalid parameters for createPolicy", parsed.error.issues);
+            throw new ZeusValidationError("Invalid parameters for createPolicy", parsed.error.issues);
         }
         const network = this.client.getNetwork();
         if (!network.usdcAddress) {
-            throw new index_js_1.ZeusContractError(`USDC address not configured for "${network.name}".`);
+            throw new ZeusContractError(`USDC address not configured for "${network.name}".`);
         }
         const contract = this.getContract();
         const premium = calcPremium(parsed.data.amount, parsed.data.retries);
         // --- Approve USDC premium transfer if allowance is insufficient ---
         try {
-            const usdc = new ethers_1.Contract(network.usdcAddress, USDC_ABI, this.client.getRunner());
+            const usdc = new Contract(network.usdcAddress, USDC_ABI, this.client.getRunner());
             const owner = this.client.getAddress();
             const allowance = await usdc.allowance(owner, network.insuranceAddress);
             if (allowance < premium) {
@@ -102,23 +99,23 @@ class ZeusInsurance {
             }
         }
         catch (err) {
-            if (err instanceof index_js_1.ZeusError)
+            if (err instanceof ZeusError)
                 throw err;
-            throw new index_js_1.ZeusTransactionError(`USDC approval failed: ${err.message}`, undefined, err);
+            throw new ZeusTransactionError(`USDC approval failed: ${err.message}`, undefined, err);
         }
         // --- Call buyInsurance on-chain ---
         try {
             const tx = await contract.buyInsurance(parsed.data.seller, parsed.data.amount, BigInt(parsed.data.timeout), BigInt(parsed.data.retries));
             const receipt = await tx.wait();
             if (!receipt) {
-                throw new index_js_1.ZeusTransactionError("Transaction was submitted but no receipt was received.");
+                throw new ZeusTransactionError("Transaction was submitted but no receipt was received.");
             }
             if (receipt.status === 0) {
-                throw new index_js_1.ZeusTransactionError("Transaction reverted.", receipt.hash);
+                throw new ZeusTransactionError("Transaction reverted.", receipt.hash);
             }
             const event = this.parseEvent(receipt, "PolicyCreated");
             if (!event) {
-                throw new index_js_1.ZeusTransactionError("PolicyCreated event not found in transaction logs.", receipt.hash);
+                throw new ZeusTransactionError("PolicyCreated event not found in transaction logs.", receipt.hash);
             }
             return {
                 policyId: Number(event.args["policyId"]),
@@ -126,9 +123,9 @@ class ZeusInsurance {
             };
         }
         catch (err) {
-            if (err instanceof index_js_1.ZeusError)
+            if (err instanceof ZeusError)
                 throw err;
-            throw new index_js_1.ZeusTransactionError(`Failed to create insurance policy: ${err.message}`, undefined, err);
+            throw new ZeusTransactionError(`Failed to create insurance policy: ${err.message}`, undefined, err);
         }
     }
     /**
@@ -136,33 +133,33 @@ class ZeusInsurance {
      * Only the policy buyer can call this.
      */
     async claimPayout(policyId) {
-        const parsed = index_js_1.ClaimPayoutSchema.safeParse({ policyId });
+        const parsed = ClaimPayoutSchema.safeParse({ policyId });
         if (!parsed.success) {
-            throw new index_js_1.ZeusValidationError("Invalid parameters for claimPayout", parsed.error.issues);
+            throw new ZeusValidationError("Invalid parameters for claimPayout", parsed.error.issues);
         }
         const contract = this.getContract();
         try {
             const tx = await contract.claimPayout(BigInt(parsed.data.policyId));
             const receipt = await tx.wait();
             if (!receipt) {
-                throw new index_js_1.ZeusTransactionError("Transaction was submitted but no receipt was received.");
+                throw new ZeusTransactionError("Transaction was submitted but no receipt was received.");
             }
             if (receipt.status === 0) {
-                throw new index_js_1.ZeusTransactionError("Transaction reverted.", receipt.hash);
+                throw new ZeusTransactionError("Transaction reverted.", receipt.hash);
             }
             return this.buildTxResult(receipt);
         }
         catch (err) {
-            if (err instanceof index_js_1.ZeusError)
+            if (err instanceof ZeusError)
                 throw err;
-            throw new index_js_1.ZeusTransactionError(`Failed to claim payout: ${err.message}`, undefined, err);
+            throw new ZeusTransactionError(`Failed to claim payout: ${err.message}`, undefined, err);
         }
     }
     /** Read policy state from chain. */
     async getPolicy(policyId) {
-        const parsed = index_js_1.GetPolicySchema.safeParse({ policyId });
+        const parsed = GetPolicySchema.safeParse({ policyId });
         if (!parsed.success) {
-            throw new index_js_1.ZeusValidationError("Invalid parameters for getPolicy", parsed.error.issues);
+            throw new ZeusValidationError("Invalid parameters for getPolicy", parsed.error.issues);
         }
         const contract = this.getContract();
         try {
@@ -181,11 +178,10 @@ class ZeusInsurance {
             };
         }
         catch (err) {
-            if (err instanceof index_js_1.ZeusError)
+            if (err instanceof ZeusError)
                 throw err;
-            throw new index_js_1.ZeusTransactionError(`Failed to fetch policy: ${err.message}`, undefined, err);
+            throw new ZeusTransactionError(`Failed to fetch policy: ${err.message}`, undefined, err);
         }
     }
 }
-exports.ZeusInsurance = ZeusInsurance;
 //# sourceMappingURL=insurance.js.map

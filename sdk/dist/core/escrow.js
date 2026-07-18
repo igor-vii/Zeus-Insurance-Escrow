@@ -1,8 +1,5 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.ZeusEscrow = void 0;
-const ethers_1 = require("ethers");
-const index_js_1 = require("../types/index.js");
+import { Contract, Interface } from "ethers";
+import { DepositAndCreateAgreementSchema, ConfirmExecutionSchema, RequestRefundSchema, ZeusError, ZeusNotConnectedError, ZeusValidationError, ZeusTransactionError, ZeusContractError, } from "../types/index.js";
 /**
  * ABI for ZeusEscrowBOT.sol (Solidity 0.8.24).
  *
@@ -31,19 +28,19 @@ function toProofBytes(proof) {
     return "0x" + Buffer.from(proof, "utf8").toString("hex");
 }
 const EMPTY_PROOF = "0x";
-class ZeusEscrow {
+export class ZeusEscrow {
     client;
     constructor(client) {
         this.client = client;
     }
     getContract() {
         if (!this.client.isReady())
-            throw new index_js_1.ZeusNotConnectedError();
+            throw new ZeusNotConnectedError();
         const network = this.client.getNetwork();
         if (!network.escrowAddress) {
-            throw new index_js_1.ZeusContractError(`ZeusEscrowBOT is not deployed on "${network.name}" yet.`);
+            throw new ZeusContractError(`ZeusEscrowBOT is not deployed on "${network.name}" yet.`);
         }
-        return new ethers_1.Contract(network.escrowAddress, ESCROW_ABI, this.client.getRunner());
+        return new Contract(network.escrowAddress, ESCROW_ABI, this.client.getRunner());
     }
     buildTxResult(receipt) {
         return {
@@ -54,7 +51,7 @@ class ZeusEscrow {
         };
     }
     parseEvent(receipt, eventName) {
-        const iface = new ethers_1.Interface(ESCROW_ABI);
+        const iface = new Interface(ESCROW_ABI);
         for (const log of receipt.logs) {
             try {
                 const parsed = iface.parseLog({ topics: [...log.topics], data: log.data });
@@ -78,23 +75,23 @@ class ZeusEscrow {
      * @returns agreementId and transaction details
      */
     async depositAndCreateAgreement(executor, amount, timeout) {
-        const parsed = index_js_1.DepositAndCreateAgreementSchema.safeParse({ executor, amount, timeout });
+        const parsed = DepositAndCreateAgreementSchema.safeParse({ executor, amount, timeout });
         if (!parsed.success) {
-            throw new index_js_1.ZeusValidationError("Invalid parameters for depositAndCreateAgreement", parsed.error.issues);
+            throw new ZeusValidationError("Invalid parameters for depositAndCreateAgreement", parsed.error.issues);
         }
         const contract = this.getContract();
         try {
             const tx = await contract.depositAndCreateAgreement(parsed.data.executor, parsed.data.amount, BigInt(parsed.data.timeout));
             const receipt = await tx.wait();
             if (!receipt) {
-                throw new index_js_1.ZeusTransactionError("Transaction was submitted but no receipt was received.");
+                throw new ZeusTransactionError("Transaction was submitted but no receipt was received.");
             }
             if (receipt.status === 0) {
-                throw new index_js_1.ZeusTransactionError("Transaction reverted.", receipt.hash);
+                throw new ZeusTransactionError("Transaction reverted.", receipt.hash);
             }
             const event = this.parseEvent(receipt, "AgreementCreated");
             if (!event) {
-                throw new index_js_1.ZeusTransactionError("AgreementCreated event not found in transaction logs.", receipt.hash);
+                throw new ZeusTransactionError("AgreementCreated event not found in transaction logs.", receipt.hash);
             }
             return {
                 agreementId: Number(event.args["agreementId"]),
@@ -102,9 +99,9 @@ class ZeusEscrow {
             };
         }
         catch (err) {
-            if (err instanceof index_js_1.ZeusError)
+            if (err instanceof ZeusError)
                 throw err;
-            throw new index_js_1.ZeusTransactionError(`Failed to create escrow agreement: ${err.message}`, undefined, err);
+            throw new ZeusTransactionError(`Failed to create escrow agreement: ${err.message}`, undefined, err);
         }
     }
     /**
@@ -113,9 +110,9 @@ class ZeusEscrow {
      * It is stored on-chain in the Agreement struct.
      */
     async confirmExecution(agreementId, proof) {
-        const parsed = index_js_1.ConfirmExecutionSchema.safeParse({ agreementId, proof });
+        const parsed = ConfirmExecutionSchema.safeParse({ agreementId, proof });
         if (!parsed.success) {
-            throw new index_js_1.ZeusValidationError("Invalid parameters for confirmExecution", parsed.error.issues);
+            throw new ZeusValidationError("Invalid parameters for confirmExecution", parsed.error.issues);
         }
         const contract = this.getContract();
         const proofBytes = toProofBytes(parsed.data.proof);
@@ -123,49 +120,49 @@ class ZeusEscrow {
             const tx = await contract.confirmExecution(BigInt(parsed.data.agreementId), proofBytes);
             const receipt = await tx.wait();
             if (!receipt) {
-                throw new index_js_1.ZeusTransactionError("Transaction was submitted but no receipt was received.");
+                throw new ZeusTransactionError("Transaction was submitted but no receipt was received.");
             }
             if (receipt.status === 0) {
-                throw new index_js_1.ZeusTransactionError("Transaction reverted.", receipt.hash);
+                throw new ZeusTransactionError("Transaction reverted.", receipt.hash);
             }
             return this.buildTxResult(receipt);
         }
         catch (err) {
-            if (err instanceof index_js_1.ZeusError)
+            if (err instanceof ZeusError)
                 throw err;
-            throw new index_js_1.ZeusTransactionError(`Failed to confirm execution: ${err.message}`, undefined, err);
+            throw new ZeusTransactionError(`Failed to confirm execution: ${err.message}`, undefined, err);
         }
     }
     /**
      * Initiator requests a refund after the agreement timeout has elapsed.
      */
     async requestRefund(agreementId) {
-        const parsed = index_js_1.RequestRefundSchema.safeParse({ agreementId });
+        const parsed = RequestRefundSchema.safeParse({ agreementId });
         if (!parsed.success) {
-            throw new index_js_1.ZeusValidationError("Invalid parameters for requestRefund", parsed.error.issues);
+            throw new ZeusValidationError("Invalid parameters for requestRefund", parsed.error.issues);
         }
         const contract = this.getContract();
         try {
             const tx = await contract.requestRefund(BigInt(parsed.data.agreementId));
             const receipt = await tx.wait();
             if (!receipt) {
-                throw new index_js_1.ZeusTransactionError("Transaction was submitted but no receipt was received.");
+                throw new ZeusTransactionError("Transaction was submitted but no receipt was received.");
             }
             if (receipt.status === 0) {
-                throw new index_js_1.ZeusTransactionError("Transaction reverted.", receipt.hash);
+                throw new ZeusTransactionError("Transaction reverted.", receipt.hash);
             }
             return this.buildTxResult(receipt);
         }
         catch (err) {
-            if (err instanceof index_js_1.ZeusError)
+            if (err instanceof ZeusError)
                 throw err;
-            throw new index_js_1.ZeusTransactionError(`Failed to request refund: ${err.message}`, undefined, err);
+            throw new ZeusTransactionError(`Failed to request refund: ${err.message}`, undefined, err);
         }
     }
     /** Read agreement state from chain. */
     async getAgreement(agreementId) {
         if (!Number.isInteger(agreementId) || agreementId < 0) {
-            throw new index_js_1.ZeusValidationError("Agreement ID must be a non-negative integer.");
+            throw new ZeusValidationError("Agreement ID must be a non-negative integer.");
         }
         const contract = this.getContract();
         try {
@@ -184,9 +181,9 @@ class ZeusEscrow {
             };
         }
         catch (err) {
-            if (err instanceof index_js_1.ZeusError)
+            if (err instanceof ZeusError)
                 throw err;
-            throw new index_js_1.ZeusTransactionError(`Failed to fetch agreement: ${err.message}`, undefined, err);
+            throw new ZeusTransactionError(`Failed to fetch agreement: ${err.message}`, undefined, err);
         }
     }
     /** Total number of agreements ever created. */
@@ -197,7 +194,7 @@ class ZeusEscrow {
             return Number(count);
         }
         catch (err) {
-            throw new index_js_1.ZeusContractError(`Failed to fetch agreement count: ${err.message}`, err);
+            throw new ZeusContractError(`Failed to fetch agreement count: ${err.message}`, err);
         }
     }
     /** Address of the ERC-20 token the escrow accepts. */
@@ -207,9 +204,8 @@ class ZeusEscrow {
             return String(await contract.token());
         }
         catch (err) {
-            throw new index_js_1.ZeusContractError(`Failed to fetch token address: ${err.message}`, err);
+            throw new ZeusContractError(`Failed to fetch token address: ${err.message}`, err);
         }
     }
 }
-exports.ZeusEscrow = ZeusEscrow;
 //# sourceMappingURL=escrow.js.map

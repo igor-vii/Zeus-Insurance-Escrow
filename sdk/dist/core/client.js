@@ -1,9 +1,6 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.ZeusClient = void 0;
-const ethers_1 = require("ethers");
-const index_js_1 = require("../types/index.js");
-class ZeusClient {
+import { JsonRpcProvider } from "ethers";
+import { NETWORKS, ZeusError, ZeusNotConnectedError, ZeusValidationError, } from "../types/index.js";
+export class ZeusClient {
     _signer = null;
     _provider = null;
     _network = null;
@@ -14,24 +11,24 @@ class ZeusClient {
      * @param signer   ethers v6 Signer (wallet, injected provider, etc.)
      */
     async connect(network, signer) {
-        if (!(network in index_js_1.NETWORKS)) {
-            throw new index_js_1.ZeusValidationError(`Unknown network "${network}". Supported networks: ${Object.keys(index_js_1.NETWORKS).join(", ")}`);
+        if (!(network in NETWORKS)) {
+            throw new ZeusValidationError(`Unknown network "${network}". Supported networks: ${Object.keys(NETWORKS).join(", ")}`);
         }
-        const networkConfig = index_js_1.NETWORKS[network];
+        const networkConfig = NETWORKS[network];
         if (!signer || typeof signer.getAddress !== "function") {
-            throw new index_js_1.ZeusValidationError("Invalid signer: must be an ethers v6 Signer with a getAddress() method.");
+            throw new ZeusValidationError("Invalid signer: must be an ethers v6 Signer with a getAddress() method.");
         }
         const provider = signer.provider
             ? signer.provider
             : networkConfig.rpcUrl
-                ? new ethers_1.JsonRpcProvider(networkConfig.rpcUrl)
+                ? new JsonRpcProvider(networkConfig.rpcUrl)
                 : null;
         let address;
         try {
             address = await signer.getAddress();
         }
         catch (err) {
-            throw new index_js_1.ZeusError(`Failed to retrieve address from signer: ${err.message}`, "SIGNER_ERROR", err);
+            throw new ZeusError(`Failed to retrieve address from signer: ${err.message}`, "SIGNER_ERROR", err);
         }
         this._network = networkConfig;
         this._signer = signer;
@@ -43,17 +40,17 @@ class ZeusClient {
     }
     getAddress() {
         if (!this._address)
-            throw new index_js_1.ZeusNotConnectedError();
+            throw new ZeusNotConnectedError();
         return this._address;
     }
     getNetwork() {
         if (!this._network)
-            throw new index_js_1.ZeusNotConnectedError();
+            throw new ZeusNotConnectedError();
         return this._network;
     }
     getSigner() {
         if (!this._signer)
-            throw new index_js_1.ZeusNotConnectedError();
+            throw new ZeusNotConnectedError();
         return this._signer;
     }
     getProvider() {
@@ -61,7 +58,7 @@ class ZeusClient {
     }
     getRunner() {
         if (!this._signer)
-            throw new index_js_1.ZeusNotConnectedError();
+            throw new ZeusNotConnectedError();
         return this._signer;
     }
     disconnect() {
@@ -71,5 +68,4 @@ class ZeusClient {
         this._address = null;
     }
 }
-exports.ZeusClient = ZeusClient;
 //# sourceMappingURL=client.js.map

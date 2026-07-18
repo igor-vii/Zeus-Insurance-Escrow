@@ -1,6 +1,9 @@
 // ─── Deployed contract addresses (Base Sepolia testnet) ──────────────────────
 export const ZEUS_INSURANCE_ADDRESS =
-  "0xE0b89E0DEa7Fc7AEa7CEcC62a0A14d52de42Ce3b" as const;
+  "0x1d9D90d2652296A2c89E3802d45B1F2132b30076" as const;
+
+/** First block to scan for PolicyCreated logs (ZeusInsuranceV2 deploy block on Base Sepolia). */
+export const INSURANCE_DEPLOY_BLOCK = 44_313_000n;
 
 export const ZEUS_RESERVE_ADDRESS =
   "0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47" as const;
