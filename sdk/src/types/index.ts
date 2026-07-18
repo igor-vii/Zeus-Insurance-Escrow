@@ -28,7 +28,7 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
     name: "mainnet",
     chainId: 1,
     escrowAddress: "",          // not yet deployed on mainnet
-    insuranceAddress: "",
+    insuranceAddress: "0x1d9D90d2652296A2c89E3802d45B1F2132b30076",
     usdcAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     rpcUrl: "https://eth.llamarpc.com",
   },
@@ -37,7 +37,7 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
     chainId: 84532,
     // Deployed 2026-07-18 — see contracts/scripts/deploy-escrow-bot.ts
     escrowAddress: "0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76",
-    insuranceAddress: "",       // ZeusInsuranceV2 not yet deployed on Base Sepolia
+    insuranceAddress: "0x1d9D90d2652296A2c89E3802d45B1F2132b30076", // Deployed 2026-07-18
     usdcAddress: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     rpcUrl: "https://sepolia.base.org",
   },

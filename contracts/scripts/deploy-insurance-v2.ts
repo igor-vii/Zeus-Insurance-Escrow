@@ -57,9 +57,11 @@ async function main() {
 
   if (fs.existsSync(sdkTypesPath)) {
     let sdkContent = fs.readFileSync(sdkTypesPath, "utf8");
+    // Target the base-sepolia network block specifically by replacing the
+    // insuranceAddress that appears after the base-sepolia escrowAddress line.
     sdkContent = sdkContent.replace(
-      /insuranceAddress:\s*"0x[a-fA-F0-9]{40}"|insuranceAddress:\s*""/,
-      `insuranceAddress: "${insuranceAddress}"`
+      /(escrowAddress:.*\n.*insuranceAddress:\s*)"[^"]*"/,
+      `$1"${insuranceAddress}"`
     );
     fs.writeFileSync(sdkTypesPath, sdkContent);
     console.log(`✅ SDK updated with new address: ${insuranceAddress}`);
