@@ -1,139 +1,248 @@
-# ⚡ Zeus Insurance V2 – Decentralized Insurance Protocol for AI Agents
+# ⚡ Zeus Insurance — Decentralized Insurance Protocol for AI Agents
 
-**Zeus Insurance** protects AI agents and Web3 projects from financial losses caused by API failures, technical downtime, and oracle risks. It provides a trustless, on-chain guarantee that if a service fails, the user is compensated.
+**Zeus Insurance** protects AI agents and Web3 projects from financial losses caused by API failures, technical downtime, and oracle risks. It provides a trustless, on-chain guarantee: if a service fails, the buyer is automatically compensated from the reserve fund.
+
+> 🔗 **Live app:** [zeus-insurance-v2.netlify.app](https://zeus-insurance-v2.netlify.app)  
+> 📦 **Repo:** [github.com/igor-vii/Zeus-Insurance-Escrow](https://github.com/igor-vii/Zeus-Insurance-Escrow)
 
 ---
 
-## 🎯 The Problem & Solution
+## 🎯 Problem & Solution
 
-- **Problem**: AI agents and dApps lose money on failed API calls, unreliable oracles, and technical downtimes. Refunds are slow and require trust.
-- **Solution**: Zeus Insurance offers a decentralized, transparent insurance layer. Users pay a premium, and if the service fails, they are automatically compensated from the reserve fund.
+| Problem | Solution |
+|---|---|
+| AI agents lose money on failed API calls | On-chain policy guarantees automatic compensation |
+| Refunds require trust in a third party | Smart contract escrow — fully trustless |
+| No standard way for agents to pay for APIs | x402 protocol + ERC-8004 compatible payment flow |
 
 ---
 
 ## 💡 How It Works
 
-1.  **Buy Insurance**: The buyer pays a premium to insure a transaction or service call.
-2.  **Service Fails**: If the seller doesn't deliver within the agreed timeout, the buyer becomes eligible for compensation.
-3.  **Claim Payout**: The protocol automatically pays the compensation from the reserve fund (`ZeusReserveV2`).
+```
+Agent                   ZeusInsuranceV2          ZeusReserveV2
+  │                           │                        │
+  ├─ buyInsurance(seller, amount, timeout, retries) ──▶│
+  │   (pays USDC premium)     │                        │
+  │                           │◀── premium pooled ─────┤
+  │                           │                        │
+  │   [service fails / timeout expires]                │
+  │                           │                        │
+  ├─ claimPayout(policyId) ──▶│                        │
+  │                           ├─ verify + pay ────────▶│
+  │◀──────── USDC refund ──────────────────────────────┤
+```
 
-**Key Features:**
-- Fully on-chain, transparent, and auditable.
-- Smart contract escrow ensures trustless execution.
-- Premiums are pooled in a separate, secure reserve fund.
-- No central authority – governed entirely by smart contracts.
+**Premium formula:** `premium = amount × (700 + (retries − 1) × 200) bps`
 
 ---
 
-## 🛠️ Technology Stack
+## 🔗 Live Contracts — Base Sepolia
 
-| Component | Technology |
-| :--- | :--- |
-| Smart Contracts | Solidity 0.8.24, OpenZeppelin v5 |
-| Testnet | Base Sepolia (L2 on Ethereum) |
+| Contract | Address | Explorer |
+|---|---|---|
+| **ZeusInsuranceV2** | `0x1d9D90d2652296A2c89E3802d45B1F2132b30076` | [BaseScan ↗](https://sepolia.basescan.org/address/0x1d9D90d2652296A2c89E3802d45B1F2132b30076) |
+| **ZeusReserveV2** | `0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47` | [BaseScan ↗](https://sepolia.basescan.org/address/0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47) |
+| **USDC (Base Sepolia)** | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | — |
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Smart Contracts | Solidity 0.8.24, OpenZeppelin v5, Hardhat |
+| Blockchain | Base Sepolia (L2 on Ethereum) |
 | Token | USDC (6 decimals) |
-| Frontend | React, ethers.js, Tailwind CSS |
-| Development | Hardhat, TypeScript, pnpm |
-| Hosting | Replit / GitHub Codespaces / Netlify |
+| Frontend | React 18, wagmi v3, viem, Tailwind CSS |
+| SDK | `@zeus/sdk` — ethers v6, ESM (NodeNext) |
+| API Server | Express v5, TypeScript, viem, esbuild |
+| AI Agent Payments | **x402** protocol (`x402-express`) |
+| Agent Standard | **ERC-8004** compatible |
+| Runtime | Node.js 20, pnpm workspaces |
 
 ---
 
-## 🔗 Live Contracts (Base Sepolia)
+## 📦 Monorepo Structure
 
-| Contract | Address | BaseScan |
-| :--- | :--- | :--- |
-| **ZeusInsuranceV2** | `0xE0b89E0DEa7Fc7AEa7CEcC62a0A14d52de42Ce3b` | [View](https://sepolia.basescan.org/address/0xE0b89E0DEa7Fc7AEa7CEcC62a0A14d52de42Ce3b) |
-| **ZeusReserveV2** | `0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47` | [View](https://sepolia.basescan.org/address/0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47) |
-| **USDC (Base Sepolia)** | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | - |
-
----
-
-## 🏦 Reserve Fund
-
-The protocol's security is underpinned by the `ZeusReserveV2` contract, which:
-
-- Holds USDC and manages all payouts.
-- Enforces a daily payout limit and a minimum reserve threshold.
-- Can be paused in case of emergency.
-- Is designed to be auditable and transparent.
+```
+Zeus-Insurance-Escrow/
+├── contracts/          # Hardhat — Solidity contracts + tests
+├── sdk/                # @zeus/sdk — TypeScript SDK (ESM)
+├── api-server/         # Express REST API (port 8080)
+└── frontend/           # React app (port 5000)
+```
 
 ---
 
-## 🚀 Getting Started
+## 🤖 @zeus/sdk — JavaScript SDK
 
-### 1. Clone the Repository
+Install in your agent or dApp:
 
 ```bash
-git clone https://github.com/igor-vii/Zeus-insurance-v2.1.git
-cd Zeus-insurance-v2.1
-2. Install Dependencies
-bash
+npm install @zeus/sdk ethers
+```
+
+### Buy a policy
+
+```typescript
+import { ZeusSDK } from "@zeus/sdk";
+import { ethers } from "ethers";
+
+const sdk = new ZeusSDK();
+const provider = new ethers.BrowserProvider(window.ethereum);
+const signer = await provider.getSigner();
+
+await sdk.connect("base-sepolia", signer);
+
+// Creates policy — auto-approves USDC internally
+await sdk.insurance.createPolicy(
+  "0xSellerAddress",   // seller
+  5_000_000n,          // 5 USDC (6 decimals)
+  86_400,              // 24h timeout
+  3,                   // max retries
+);
+```
+
+### Claim a payout
+
+```typescript
+await sdk.insurance.claimPayout(policyId);
+```
+
+### Read a policy
+
+```typescript
+const policy = await sdk.insurance.getPolicy(policyId);
+console.log(policy.isPaidOut, policy.amount.toString());
+```
+
+---
+
+## 🌐 REST API
+
+Base URL: `https://<your-replit-domain>/api`
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/quote` | — | Calculate premium for given amount + retries |
+| `POST` | `/insurance/prepare-buy` | **x402** | Prepare `buyInsurance` calldata |
+| `GET` | `/insurance/policies?buyer=` | — | List policies for an address |
+| `GET` | `/insurance/policies/:id` | — | Get single policy |
+| `POST` | `/insurance/claim` | — | Prepare `claimPayout` calldata |
+| `GET` | `/insurance/reserve` | — | Reserve fund status |
+| `GET` | `/x402/info` | — | x402 payment terms discovery |
+
+### x402 — AI Agent Payment Flow (ERC-8004)
+
+`POST /api/insurance/prepare-buy` requires a **0.001 USDC** x402 payment (Base Sepolia).
+
+**Step 1 — Discover payment terms:**
+```bash
+curl https://<api>/api/x402/info
+# → { "network": "base-sepolia", "asset": "0x036C...", "payTo": "0x...", ... }
+```
+
+**Step 2 — Call the protected endpoint (agent pays via x402 header):**
+```bash
+curl -X POST https://<api>/api/insurance/prepare-buy \
+  -H "Content-Type: application/json" \
+  -H "X-PAYMENT: <x402-payment-header>" \
+  -d '{"seller":"0xSeller","amount":"5000000","timeoutSeconds":86400,"maxRetries":3}'
+# → { "to": "0x1d9D...", "data": "0x...", "premiumAmount": "350000" }
+```
+
+**Step 3 — Agent submits the transaction on-chain using the returned calldata.**
+
+> Facilitator: [x402.org/facilitator](https://x402.org/facilitator) (Coinbase, testnet free)
+
+---
+
+## 🚀 Local Development
+
+### Prerequisites
+
+- Node.js 20+
+- pnpm 9+
+
+### Setup
+
+```bash
+git clone https://github.com/igor-vii/Zeus-Insurance-Escrow.git
+cd Zeus-Insurance-Escrow
+pnpm install
+```
+
+### Run
+
+```bash
+# API server (port 8080)
+cd api-server && pnpm dev
+
+# Frontend (port 5000)
+cd frontend && pnpm dev
+
+# Build SDK
+cd sdk && pnpm build
+```
+
+### Environment variables
+
+| Variable | Where | Description |
+|---|---|---|
+| `PRIVATE_KEY` | `contracts/.env` | Deployer wallet private key |
+| `BASESCAN_API_KEY` | `contracts/.env` | For contract verification |
+| `SESSION_SECRET` | API server secret | Cookie signing |
+| `ZEUS_TREASURY` | API server env var | Wallet receiving x402 fees |
+
+### Compile & test contracts
+
+```bash
 cd contracts
-npm install
-3. Set Up Environment
-Create a .env file in the contracts folder:
-
-env
-PRIVATE_KEY=0xyour_private_key
-4. Compile Contracts
-bash
+pnpm install
 npx hardhat compile
-5. Run Tests
-All 30+ tests should pass:
-
-bash
-npx hardhat test
-6. Deploy to Base Sepolia
-bash
+npx hardhat test        # 30+ tests
 npx hardhat run scripts/deploy-v2.js --network baseSepolia
-🖥️ Frontend
-The frontend interface allows users to connect their wallet, buy insurance, view policies, and submit claims. To run it locally:
+```
 
-bash
-cd frontend
-npm install
-npm run dev
-Open http://localhost:3000 in your browser.
+---
 
-📊 Testing the Full Flow
-Fund the Reserve: Send USDC to the ZeusReserveV2 contract.
+## 🗺️ Roadmap
 
-Buy Insurance: Use the frontend to create a policy.
+| Phase | Status | Goal |
+|---|---|---|
+| Smart Contracts | ✅ Done | ZeusInsuranceV2 + ZeusReserveV2 on Base Sepolia |
+| Frontend | ✅ Done | React app — buy, claim, dashboard |
+| SDK | ✅ Done | `@zeus/sdk` — ESM, ethers v6, insurance + escrow |
+| REST API | ✅ Done | Express server with caching + event listener |
+| x402 Integration | ✅ Done | AI agents pay per API call in USDC |
+| ERC-8004 | 🔜 Next | Full on-chain agent payment interface compliance |
+| Mainnet | 🔜 Next | Deploy to Base Mainnet |
+| Audit | 🔜 Next | Security audit of core contracts |
 
-Wait for Timeout: Simulate a failure.
+---
 
-Claim Payout: Submit a claim and verify the compensation.
+## 🤝 Contributing
 
-🗺️ Roadmap
-Phase	Status	Goal
-Smart Contracts	✅	ZeusInsuranceV2 + ZeusReserveV2 deployed
-Frontend	✅	Basic interface for testing
-Reserve Fund	✅	USDC-based reserve with daily limits
-SDK (JavaScript)	🔜	Client library for developers
-Proxy API	🔜	HTTP endpoint for agent integration
-Mainnet Deployment	🔜	Move to Base Mainnet
-🤝 Contributing
-We welcome contributions from the community. Please fork the repository and submit a Pull Request.
+Fork the repo, create a feature branch, submit a Pull Request.  
+Please run `pnpm typecheck` in `api-server/` and `frontend/` before submitting.
 
-📞 Contacts
-GitHub: igor-vii/Zeus-insurance-v2.1
+---
 
-Telegram: @IvanovVII
+## 📞 Contacts
 
-Website: https://zeus-insurance-v2.netlify.app
+- **Telegram:** [@IvanovVII](https://t.me/IvanovVII)
+- **GitHub:** [igor-vii/Zeus-Insurance-Escrow](https://github.com/igor-vii/Zeus-Insurance-Escrow)
+- **Email:** zeusinsurance@mail.ru
 
-Email: zeusinsurance@mail.ru
+---
 
-📄 License
+## 📄 License
+
 MIT © 2026 Zeus Insurance Team
 
-⭐ Support the Project
-If you find this project useful:
+---
 
-⭐ Star the repository on GitHub.
-
-🔗 Share it with developers building AI agents.
-
-💬 Join the discussion in our Telegram channel.
-
-Built for AI agents. Powered by smart contracts. Protected by Zeus. ⚡
+*Built for AI agents. Powered by smart contracts. Protected by Zeus. ⚡*
