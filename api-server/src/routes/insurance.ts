@@ -5,13 +5,14 @@ import {
   isAutomaticModeAvailable,
   createPolicyFromServer,
 } from "../services/insurance.js";
+import { getSellerHistory } from "../services/sellerHistory.js";
+import { calculateRiskScore, calculatePremium } from "../services/pricing.js";
 import { publicClient } from "../lib/chain.js";
 import {
   ZEUS_INSURANCE_ADDRESS,
   ZEUS_INSURANCE_ABI,
   ZEUS_RESERVE_ADDRESS,
   ZEUS_RESERVE_ABI,
-  computePremium,
 } from "../lib/contracts-server.js";
 import {
   getCachedPolicies,
@@ -60,7 +61,19 @@ router.post("/prepare-buy", async (req, res) => {
   }
   const { seller, amount, timeoutSeconds, maxRetries } = parsed.data;
   const amountBigInt = BigInt(amount);
-  const premiumAmount = computePremium(amountBigInt, maxRetries);
+
+  // ── Dynamic pricing: Risk Score → premium ────────────────────────────────
+  let riskScore: number;
+  let premiumAmount: bigint;
+  try {
+    const history = await getSellerHistory(seller);
+    riskScore = await calculateRiskScore(seller, amountBigInt, maxRetries, history);
+    premiumAmount = await calculatePremium(amountBigInt, riskScore);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Failed to calculate risk score", detail: msg });
+    return;
+  }
 
   // ── Automatic mode — server broadcasts the transaction on behalf of agent ──
   if (isAutomaticModeAvailable()) {
@@ -75,6 +88,7 @@ router.post("/prepare-buy", async (req, res) => {
         mode: "automatic",
         policyId: result.policyId,
         txHash: result.txHash,
+        riskScore,
         premiumAmount: premiumAmount.toString(),
       });
       return;
@@ -97,6 +111,7 @@ router.post("/prepare-buy", async (req, res) => {
     mode: "hybrid",
     to: ZEUS_INSURANCE_ADDRESS,
     data,
+    riskScore,
     premiumAmount: premiumAmount.toString(),
   });
 });

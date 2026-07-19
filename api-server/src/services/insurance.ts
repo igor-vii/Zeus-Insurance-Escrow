@@ -1,5 +1,7 @@
 import { ethers } from "ethers";
+import { encodeFunctionData } from "viem";
 import { ZeusSDK } from "@zeus/sdk";
+import { ZEUS_INSURANCE_ADDRESS, ZEUS_INSURANCE_ABI } from "../lib/contracts-server.js";
 
 const SERVER_PRIVATE_KEY = process.env["SERVER_PRIVATE_KEY"];
 // ZEUS_INSURANCE_NETWORK controls which chain the insurance contract lives on.
@@ -58,4 +60,20 @@ export async function createPolicyFromServer(params: {
     policyId: result.policyId,
     txHash: result.tx.hash,
   };
+}
+
+/**
+ * Hybrid mode — encode calldata for claimPayout so the agent can sign and
+ * broadcast the transaction itself.
+ *
+ * @param policyId  The policy to claim against (on-chain ID).
+ * @returns         `to` (contract address) and `data` (ABI-encoded calldata).
+ */
+export function prepareClaimCalldata(policyId: bigint): { to: string; data: string } {
+  const data = encodeFunctionData({
+    abi: ZEUS_INSURANCE_ABI,
+    functionName: "claimPayout",
+    args: [policyId],
+  });
+  return { to: ZEUS_INSURANCE_ADDRESS, data };
 }

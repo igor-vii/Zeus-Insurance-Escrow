@@ -16,8 +16,9 @@ import { parseAbiItem, type Log } from "viem";
 import { publicClient } from "./chain.js";
 import { ZEUS_INSURANCE_ADDRESS } from "./contracts-server.js";
 import { fetchAndCachePolicy } from "./chain-sync.js";
-import { invalidatePolicy } from "./policy-cache.js";
+import { getCachedPolicy, invalidatePolicy } from "./policy-cache.js";
 import { logger } from "./logger.js";
+import { updateSellerRiskScore } from "../services/riskUpdater.js";
 
 const POLL_INTERVAL_MS = 4_000;
 const BACKOFF_MS       = [1_000, 5_000, 15_000, 30_000, 60_000] as const;
@@ -49,10 +50,24 @@ function handleClaimPaid(logs: Log[]): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const policyId = (log as any).args?.policyId?.toString() as string | undefined;
     if (!policyId) continue;
-    logger.info({ policyId }, "[event] ClaimPaid — invalidating cache");
-    void invalidatePolicy(policyId);
-    // Re-fetch after 2 s to capture the updated isPaidOut state
-    setTimeout(() => void fetchAndCachePolicy(policyId), 2_000);
+    logger.info({ policyId }, "[event] ClaimPaid — invalidating cache + updating risk score");
+
+    // Look up the seller before invalidating the cache entry
+    void (async () => {
+      const cached = await getCachedPolicy(policyId);
+      const sellerAddress = cached?.seller;
+
+      void invalidatePolicy(policyId);
+      // Re-fetch after 2 s to capture the updated isPaidOut state
+      setTimeout(() => void fetchAndCachePolicy(policyId), 2_000);
+
+      if (sellerAddress) {
+        // ClaimPaid means the seller failed to deliver — payout was triggered
+        await updateSellerRiskScore(sellerAddress, false);
+      } else {
+        logger.warn({ policyId }, "[event] ClaimPaid — seller not in cache, skipping risk score update");
+      }
+    })();
   }
 }
 

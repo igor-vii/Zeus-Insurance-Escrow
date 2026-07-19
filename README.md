@@ -160,6 +160,68 @@ curl -X POST https://<api>/api/insurance/prepare-buy \
 
 ---
 
+## 🤖 MCP Server — AI Agent Integration
+
+The API server exposes a **Model Context Protocol (MCP)** endpoint over Streamable HTTP, enabling any MCP-compatible agent (Claude, GPT-4, custom agents) to interact with the Zeus protocol natively — no custom integration code required.
+
+### Endpoint
+
+```
+POST https://api.zeus-insurance.com/mcp
+```
+
+Required headers: `Content-Type: application/json`, `Accept: application/json, text/event-stream`
+
+### 7 Available Tools
+
+| Tool | Description |
+|---|---|
+| `insurance_quote` | Dynamic premium quote — returns risk score + USDC premium |
+| `insurance_prepare_buy` | Calldata for `buyInsurance` (agent signs + broadcasts) |
+| `insurance_claim` | Calldata for `claimPayout` (buyer signs + broadcasts) |
+| `insurance_get_policies` | List all policies for a buyer (cache → chain fallback) |
+| `insurance_reserve_stats` | Reserve fund balance, thresholds, funding adequacy |
+| `escrow_prepare_deposit` | Calldata to create an escrow agreement on-chain |
+| `escrow_prepare_confirm` | Calldata to confirm execution and release escrow funds |
+
+### Quick Example
+
+```bash
+# Get a price quote via MCP
+curl -X POST https://api.zeus-insurance.com/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: agent-1" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "id": "1",
+    "params": {
+      "name": "insurance_quote",
+      "arguments": { "seller": "0xSELLER", "amount": "5000000", "maxRetries": 3 }
+    }
+  }'
+# → { "riskScore": 1.25, "premiumAmount": "75000" }
+```
+
+### Claude Desktop Integration
+
+Add to `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "zeus-insurance": {
+      "url": "https://api.zeus-insurance.com/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+> Full MCP documentation: [`api-server/README.md`](./api-server/README.md)
+
+---
+
 ## 🚀 Local Development
 
 ### Prerequisites

@@ -23,6 +23,11 @@
     {
       "name": "agentWallet",
       "endpoint": "eip155:8453:0xaF8c45345e79dA97Dd41db5FE04d13ad4BEB1640"
+    },
+    {
+      "name": "mcp",
+      "endpoint": "https://api.zeus-insurance.com/mcp",
+      "type": "streamable-http"
     }
   ],
   "registrations": [

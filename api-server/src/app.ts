@@ -8,6 +8,7 @@ import { logger } from "./lib/logger";
 import { startBackgroundSync } from "./lib/background-sync";
 import { startEventListener } from "./lib/event-listener";
 import { ZEUS_TREASURY, x402Routes } from "./config/x402.js";
+import { connectMCPServer } from "./mcp-server/index.js";
 
 const app: Express = express();
 
@@ -65,6 +66,9 @@ if (ZEUS_TREASURY) {
 }
 
 app.use("/api", router);
+
+// MCP server — AI agent interface at POST /mcp
+connectMCPServer(app);
 
 // Start the 5-minute background sync scheduler
 startBackgroundSync();
