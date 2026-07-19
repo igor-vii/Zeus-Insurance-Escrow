@@ -2,7 +2,10 @@ import { ethers } from "ethers";
 import { ZeusSDK } from "@zeus/sdk";
 
 const SERVER_PRIVATE_KEY = process.env["SERVER_PRIVATE_KEY"];
-const ZEUS_NETWORK = process.env["ZEUS_NETWORK"] ?? "base-sepolia";
+// ZEUS_INSURANCE_NETWORK controls which chain the insurance contract lives on.
+// Defaults to base-sepolia until ZeusInsuranceV2 is deployed on mainnet.
+const ZEUS_NETWORK =
+  process.env["ZEUS_INSURANCE_NETWORK"] ?? process.env["ZEUS_NETWORK"] ?? "base-sepolia";
 
 const RPC_URLS: Record<string, string> = {
   "base-mainnet": process.env["BASE_MAINNET_RPC_URL"] ?? "https://mainnet.base.org",
