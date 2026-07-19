@@ -9,7 +9,8 @@ const BASE_SEPOLIA_RPC_URL =
   process.env.BASE_SEPOLIA_RPC_URL ?? "https://sepolia.base.org";
 const BASE_MAINNET_RPC_URL =
   process.env.BASE_MAINNET_RPC_URL ?? "https://mainnet.base.org";
-const BASESCAN_API_KEY = process.env.BASESCAN_API_KEY ?? "";
+const BASESCAN_API_KEY =
+  process.env.ETHERSCAN_API_KEY ?? process.env.BASESCAN_API_KEY ?? "";
 
 const config: HardhatUserConfig = {
   solidity: {
