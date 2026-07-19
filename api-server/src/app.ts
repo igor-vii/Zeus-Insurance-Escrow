@@ -2,10 +2,12 @@ import express, { type Express } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
-import router from "./routes";
+import { paymentMiddleware } from "x402-express";
+import router from "./routes/index.js";
 import { logger } from "./lib/logger";
 import { startBackgroundSync } from "./lib/background-sync";
 import { startEventListener } from "./lib/event-listener";
+import { ZEUS_TREASURY, x402Routes } from "./config/x402.js";
 
 const app: Express = express();
 
@@ -53,6 +55,14 @@ app.use(
 app.use(cookieParser(process.env["SESSION_SECRET"]));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// x402 payment middleware — guards selected /api/insurance/* routes.
+// Disabled gracefully if ZEUS_TREASURY is not configured.
+if (ZEUS_TREASURY) {
+  app.use(paymentMiddleware(ZEUS_TREASURY, x402Routes));
+} else {
+  logger.warn("ZEUS_TREASURY not set — x402 payment middleware disabled");
+}
 
 app.use("/api", router);
 
