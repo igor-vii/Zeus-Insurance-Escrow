@@ -23,6 +23,19 @@ export class ZeusClient {
             : networkConfig.rpcUrl
                 ? new JsonRpcProvider(networkConfig.rpcUrl)
                 : null;
+        if (signer.provider) {
+            try {
+                const { chainId: walletChainId } = await signer.provider.getNetwork();
+                if (Number(walletChainId) !== networkConfig.chainId) {
+                    throw new ZeusValidationError(`Network mismatch: wallet is connected to chain ${walletChainId}, but SDK is configured for chain ${networkConfig.chainId} (${networkConfig.name}). Please switch your wallet to ${networkConfig.name}.`);
+                }
+            }
+            catch (err) {
+                if (err instanceof ZeusValidationError)
+                    throw err;
+                throw new ZeusError(`Failed to verify wallet network: ${err.message}`, "SIGNER_ERROR", err);
+            }
+        }
         let address;
         try {
             address = await signer.getAddress();
