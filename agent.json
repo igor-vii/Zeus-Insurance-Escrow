@@ -32,7 +32,7 @@
         "addresses": {
           "ZeusInsuranceV2": "",
           "ZeusReserveV2": "",
-          "ZeusEscrowBOT": "0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c",
+          "ZeusEscrowBOT": "0x8D10C2c6C92b613C1938fe532f0e391044e76188",
           "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
         },
         "note": "Mainnet — run deploy:escrow-mainnet with TREASURY_ADDRESS to populate addresses"
