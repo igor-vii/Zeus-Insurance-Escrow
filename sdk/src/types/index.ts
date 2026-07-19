@@ -36,9 +36,8 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
   "base-mainnet": {
     name: "base-mainnet",
     chainId: 8453,
-    // Populated after mainnet deployment — run deploy:escrow-mainnet and fill in.
-    escrowAddress: "",
-    insuranceAddress: "",
+    escrowAddress: "0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c",
+    insuranceAddress: "", // Not yet deployed on mainnet
     usdcAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Native USDC on Base
     rpcUrl: "https://mainnet.base.org",
   },
