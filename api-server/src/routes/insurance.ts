@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import { encodeFunctionData, isAddress } from "viem";
+import {
+  isAutomaticModeAvailable,
+  createPolicyFromServer,
+} from "../services/insurance.js";
 import { publicClient } from "../lib/chain.js";
 import {
   ZEUS_INSURANCE_ADDRESS,
@@ -48,7 +52,7 @@ const prepareBuySchema = z.object({
   maxRetries: z.coerce.number().int().min(1).max(10),
 });
 
-router.post("/prepare-buy", (req, res) => {
+router.post("/prepare-buy", async (req, res) => {
   const parsed = prepareBuySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
@@ -58,13 +62,43 @@ router.post("/prepare-buy", (req, res) => {
   const amountBigInt = BigInt(amount);
   const premiumAmount = computePremium(amountBigInt, maxRetries);
 
+  // ── Automatic mode — server broadcasts the transaction on behalf of agent ──
+  if (isAutomaticModeAvailable()) {
+    try {
+      const result = await createPolicyFromServer({
+        seller,
+        amount: amountBigInt,
+        timeout: timeoutSeconds,
+        retries: maxRetries,
+      });
+      res.json({
+        mode: "automatic",
+        policyId: result.policyId,
+        txHash: result.txHash,
+        premiumAmount: premiumAmount.toString(),
+      });
+      return;
+    } catch (err: unknown) {
+      // If automatic mode fails, fall through to hybrid so the agent can retry
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(502).json({ error: "Automatic mode failed", detail: msg });
+      return;
+    }
+  }
+
+  // ── Hybrid mode — return calldata for the agent to sign and broadcast ──
   const data = encodeFunctionData({
     abi: ZEUS_INSURANCE_ABI,
     functionName: "buyInsurance",
     args: [seller as `0x${string}`, amountBigInt, BigInt(timeoutSeconds), BigInt(maxRetries)],
   });
 
-  res.json({ to: ZEUS_INSURANCE_ADDRESS, data, premiumAmount: premiumAmount.toString() });
+  res.json({
+    mode: "hybrid",
+    to: ZEUS_INSURANCE_ADDRESS,
+    data,
+    premiumAmount: premiumAmount.toString(),
+  });
 });
 
 // ─── GET /api/policies/sync (manual trigger) ─────────────────────────────────

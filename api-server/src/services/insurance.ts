@@ -1,0 +1,58 @@
+import { ethers } from "ethers";
+import { ZeusSDK } from "@zeus/sdk";
+
+const SERVER_PRIVATE_KEY = process.env["SERVER_PRIVATE_KEY"];
+const ZEUS_NETWORK = process.env["ZEUS_NETWORK"] ?? "base-sepolia";
+
+const RPC_URLS: Record<string, string> = {
+  "base-mainnet": process.env["BASE_MAINNET_RPC_URL"] ?? "https://mainnet.base.org",
+  "base-sepolia": process.env["BASE_SEPOLIA_RPC_URL"] ?? "https://sepolia.base.org",
+};
+
+/**
+ * Returns true when the server has a private key configured and can
+ * broadcast transactions on behalf of an agent (automatic mode).
+ */
+export function isAutomaticModeAvailable(): boolean {
+  return Boolean(SERVER_PRIVATE_KEY);
+}
+
+/**
+ * Automatic mode — the API server signs and broadcasts the buyInsurance
+ * transaction on behalf of the agent.
+ *
+ * Prerequisites:
+ *  - SERVER_PRIVATE_KEY env var must be set (server wallet with USDC).
+ *  - The chosen network must have ZeusInsuranceV2 deployed.
+ *
+ * @returns policyId and the transaction hash.
+ */
+export async function createPolicyFromServer(params: {
+  seller: string;
+  amount: bigint;
+  timeout: number;
+  retries: number;
+}): Promise<{ policyId: number; txHash: string }> {
+  if (!SERVER_PRIVATE_KEY) {
+    throw new Error("SERVER_PRIVATE_KEY is not configured — automatic mode unavailable");
+  }
+
+  const rpcUrl = RPC_URLS[ZEUS_NETWORK] ?? RPC_URLS["base-sepolia"]!;
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const signer = new ethers.Wallet(SERVER_PRIVATE_KEY, provider);
+
+  const sdk = new ZeusSDK();
+  await sdk.connect(ZEUS_NETWORK, signer);
+
+  const result = await sdk.insurance.createPolicy(
+    params.seller,
+    params.amount,
+    params.timeout,
+    params.retries,
+  );
+
+  return {
+    policyId: result.policyId,
+    txHash: result.tx.hash,
+  };
+}

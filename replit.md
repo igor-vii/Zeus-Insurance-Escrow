@@ -8,6 +8,18 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ---
 
+## Environment Variables
+
+| Variable | Where Set | Notes |
+|---|---|---|
+| `DATABASE_URL` | Auto (Replit managed) | PostgreSQL connection string — do not set manually |
+| `SESSION_SECRET` | Replit Secret | Required for cookie signing |
+| `ZEUS_ESCROW_BOT_ADDRESS` | Shared env | `0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76` |
+| `ZEUS_INSURANCE_ADDRESS` | Shared env | `0x1d9D90d2652296A2c89E3802d45B1F2132b30076` |
+| `TOKEN_ADDRESS` | Shared env | USDC on Base Sepolia |
+| `ESCROW_DEPLOY_BLOCK` | Shared env | Start block for event log scanning |
+| `ZEUS_TREASURY` | Optional secret | Wallet address for x402 payment middleware; disabled if unset |
+
 ## Run & Operate
 
 ```bash

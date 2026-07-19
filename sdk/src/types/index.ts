@@ -5,6 +5,7 @@ import type { Signer, Provider } from "ethers";
 
 export const NetworkSchema = z.enum([
   "mainnet",
+  "base-mainnet",
   "base-sepolia",
   "sepolia",
   "localhost",
@@ -27,10 +28,19 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
   mainnet: {
     name: "mainnet",
     chainId: 1,
-    escrowAddress: "",          // not yet deployed on mainnet
-    insuranceAddress: "",       // not yet deployed on mainnet
+    escrowAddress: "",          // not yet deployed on Ethereum mainnet
+    insuranceAddress: "",       // not yet deployed on Ethereum mainnet
     usdcAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     rpcUrl: "https://eth.llamarpc.com",
+  },
+  "base-mainnet": {
+    name: "base-mainnet",
+    chainId: 8453,
+    // Populated after mainnet deployment — run deploy:escrow-mainnet and fill in.
+    escrowAddress: "",
+    insuranceAddress: "",
+    usdcAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Native USDC on Base
+    rpcUrl: "https://mainnet.base.org",
   },
   "base-sepolia": {
     name: "base-sepolia",

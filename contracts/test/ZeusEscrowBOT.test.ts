@@ -32,7 +32,8 @@ async function deploy() {
   await token.mint(initiator!.address, tok(100_000));
 
   const Escrow = await ethers.getContractFactory("ZeusEscrowBOT");
-  const escrow: ZeusEscrowBOT = await Escrow.deploy(await token.getAddress());
+  // Pass ZeroAddress as treasury → no protocol fee (test/local mode)
+  const escrow: ZeusEscrowBOT = await Escrow.deploy(await token.getAddress(), ZeroAddress);
   await escrow.waitForDeployment();
 
   return { escrow, token, owner: owner!, initiator: initiator!, executor: executor!, other: other! };
@@ -53,7 +54,7 @@ describe("ZeusEscrowBOT", function () {
 
     it("reverts if token address is zero", async function () {
       const Escrow = await ethers.getContractFactory("ZeusEscrowBOT");
-      await expect(Escrow.deploy(ZeroAddress)).to.be.revertedWith(
+      await expect(Escrow.deploy(ZeroAddress, ZeroAddress)).to.be.revertedWith(
         "ZeusEscrowBOT: zero token address"
       );
     });

@@ -9,6 +9,7 @@
     "deploy:baseSepolia": "HARDHAT_DISABLE_TELEMETRY_PROMPT=true hardhat run scripts/deploy.ts --network base-sepolia",
     "deploy:escrow-local": "HARDHAT_DISABLE_TELEMETRY_PROMPT=true hardhat run scripts/deploy-escrow-bot.ts",
     "deploy:escrow-baseSepolia": "HARDHAT_DISABLE_TELEMETRY_PROMPT=true hardhat run scripts/deploy-escrow-bot.ts --network base-sepolia",
+    "deploy:escrow-mainnet": "HARDHAT_DISABLE_TELEMETRY_PROMPT=true hardhat run scripts/deploy-escrow-bot.ts --network base-mainnet",
     "deploy:insurance-baseSepolia": "HARDHAT_DISABLE_TELEMETRY_PROMPT=true hardhat run scripts/deploy-insurance-v2.ts --network base-sepolia",
     "verify": "HARDHAT_DISABLE_TELEMETRY_PROMPT=true hardhat verify --network base-sepolia",
     "typecheck": "tsc --noEmit",

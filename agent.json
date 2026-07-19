@@ -1,7 +1,7 @@
 {
   "name": "Zeus Insurance Protocol",
   "description": "Decentralized insurance for AI agents and Web3 projects. Protects against API failures, technical downtime, and oracle risks.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "url": "https://github.com/igor-vii/Zeus-Insurance-Escrow",
   "api": {
     "baseUrl": "https://api.zeus-insurance.com",
@@ -16,22 +16,49 @@
     }
   },
   "contracts": {
-    "network": "base-sepolia",
-    "chainId": 84532,
-    "addresses": {
-      "ZeusInsuranceV2": "0x1d9D90d2652296A2c89E3802d45B1F2132b30076",
-      "ZeusReserveV2": "0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47",
-      "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    "networks": {
+      "base-sepolia": {
+        "chainId": 84532,
+        "addresses": {
+          "ZeusInsuranceV2": "0x1d9D90d2652296A2c89E3802d45B1F2132b30076",
+          "ZeusReserveV2": "0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47",
+          "ZeusEscrowBOT": "0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76",
+          "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+        },
+        "note": "Testnet — ZeusEscrowBOT deployed without protocol fee"
+      },
+      "base-mainnet": {
+        "chainId": 8453,
+        "addresses": {
+          "ZeusInsuranceV2": "",
+          "ZeusReserveV2": "",
+          "ZeusEscrowBOT": "",
+          "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        },
+        "note": "Mainnet — run deploy:escrow-mainnet with TREASURY_ADDRESS to populate addresses"
+      }
+    }
+  },
+  "escrow": {
+    "fee": {
+      "fixed": "$0.02 USDC per agreement",
+      "percent": "0.7% (70 bps) of agreement amount",
+      "note": "Fee only applies when treasury address is set at deployment"
     }
   },
   "sdk": {
     "package": "@zeus/sdk",
-    "repository": "https://github.com/igor-vii/Zeus-Insurance-Escrow/tree/main/sdk"
+    "repository": "https://github.com/igor-vii/Zeus-Insurance-Escrow/tree/main/sdk",
+    "supportedNetworks": ["base-mainnet", "base-sepolia", "sepolia", "localhost"]
   },
   "x402": {
     "supported": true,
     "network": "eip155:84532",
-    "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "modes": {
+      "automatic": "Server broadcasts transaction on behalf of agent (requires SERVER_PRIVATE_KEY + x402 payment)",
+      "hybrid": "Server returns signed calldata; agent signs and broadcasts locally"
+    }
   },
   "interfaces": {
     "buyInsurance": {
@@ -57,6 +84,15 @@
         { "name": "policyId", "type": "uint256" }
       ],
       "returns": "Policy struct"
+    },
+    "depositAndCreateAgreement": {
+      "description": "Create an escrow agreement (with protocol fee when treasury is set)",
+      "parameters": [
+        { "name": "executor", "type": "address" },
+        { "name": "amount", "type": "uint256", "note": "Total including fee" },
+        { "name": "timeout", "type": "uint256" }
+      ],
+      "returns": "agreementId (uint256)"
     }
   }
 }

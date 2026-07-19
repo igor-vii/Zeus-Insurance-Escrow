@@ -44,10 +44,21 @@ async function main() {
     console.log("Using token:", tokenAddress, "\n");
   }
 
+  // ── Treasury ──────────────────────────────────────────────────────────────
+  const treasuryAddress = process.env["TREASURY_ADDRESS"]?.trim() ?? "";
+  if (treasuryAddress) {
+    if (!ethers.isAddress(treasuryAddress)) {
+      throw new Error(`Invalid TREASURY_ADDRESS: "${treasuryAddress}"`);
+    }
+    console.log("Treasury (fee recipient):", treasuryAddress);
+  } else {
+    console.log("TREASURY_ADDRESS not set — deploying without fees (treasury = address(0))");
+  }
+
   // ── ZeusEscrowBOT ─────────────────────────────────────────────────────────
-  console.log("Deploying ZeusEscrowBOT…");
+  console.log("\nDeploying ZeusEscrowBOT…");
   const ZeusEscrowBOT = await ethers.getContractFactory("ZeusEscrowBOT");
-  const escrow = await ZeusEscrowBOT.deploy(tokenAddress);
+  const escrow = await ZeusEscrowBOT.deploy(tokenAddress, treasuryAddress || ethers.ZeroAddress);
   await escrow.waitForDeployment();
 
   const escrowAddress = await escrow.getAddress();
