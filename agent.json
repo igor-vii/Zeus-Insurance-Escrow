@@ -1,0 +1,62 @@
+{
+  "name": "Zeus Insurance Protocol",
+  "description": "Decentralized insurance for AI agents and Web3 projects. Protects against API failures, technical downtime, and oracle risks.",
+  "version": "1.0.0",
+  "url": "https://github.com/igor-vii/Zeus-Insurance-Escrow",
+  "api": {
+    "baseUrl": "https://api.zeus-insurance.com",
+    "endpoints": {
+      "quote": "/api/quote",
+      "prepareBuy": "/api/insurance/prepare-buy",
+      "policies": "/api/insurance/policies",
+      "policy": "/api/insurance/policies/:id",
+      "claim": "/api/insurance/claim",
+      "reserve": "/api/insurance/reserve",
+      "x402Info": "/api/x402/info"
+    }
+  },
+  "contracts": {
+    "network": "base-sepolia",
+    "chainId": 84532,
+    "addresses": {
+      "ZeusInsuranceV2": "0x1d9D90d2652296A2c89E3802d45B1F2132b30076",
+      "ZeusReserveV2": "0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47",
+      "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    }
+  },
+  "sdk": {
+    "package": "@zeus/sdk",
+    "repository": "https://github.com/igor-vii/Zeus-Insurance-Escrow/tree/main/sdk"
+  },
+  "x402": {
+    "supported": true,
+    "network": "eip155:84532",
+    "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+  },
+  "interfaces": {
+    "buyInsurance": {
+      "description": "Purchase an insurance policy",
+      "parameters": [
+        { "name": "seller", "type": "address" },
+        { "name": "amount", "type": "uint256" },
+        { "name": "timeout", "type": "uint256" },
+        { "name": "retries", "type": "uint256" }
+      ],
+      "returns": "policyId (uint256)"
+    },
+    "claimPayout": {
+      "description": "Claim a payout for a policy",
+      "parameters": [
+        { "name": "policyId", "type": "uint256" }
+      ],
+      "returns": "bool"
+    },
+    "getPolicy": {
+      "description": "Get policy details",
+      "parameters": [
+        { "name": "policyId", "type": "uint256" }
+      ],
+      "returns": "Policy struct"
+    }
+  }
+}
