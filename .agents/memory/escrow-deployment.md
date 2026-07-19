@@ -1,36 +1,24 @@
 ---
 name: Escrow deployment
-description: ZeusEscrowBOT contract addresses, token, and RPC quirks on Base Sepolia
+description: ZeusEscrowBOT addresses, token addresses, and getLogs pagination constraint for both Base Sepolia and Base Mainnet
 ---
 
-## Deployed contract
+## Base Sepolia (testnet)
+- Contract: `0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76`
+- Token (testnet USDC): `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
+- Deploy block: `44268060`
+- Treasury: `address(0)` — fee logic disabled on testnet
 
-| Key | Value |
-|---|---|
-| Network | Base Sepolia (chainId 84532) |
-| ZeusEscrowBOT | `0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76` |
-| Token (USDC) | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
-| Deployer | `0xaF8c45345e79dA97Dd41db5FE04d13ad4BEB1640` |
-| Deploy block | ~44268060 |
-| Basescan | https://sepolia.basescan.org/address/0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76#code |
+## Base Mainnet
+- Contract: `0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c`
+- Token (native USDC): `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+- Treasury (fee recipient): `0xaF8c45345e79dA97Dd41db5FE04d13ad4BEB1640`
+- Verified: https://basescan.org/address/0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c#code
+- Protocol fee: 0.7% (70 bps) + $0.02 fixed per agreement
 
-## Env vars set (shared)
+## getLogs constraint
+Public Base RPC returns `InvalidParamsRpcError` if `toBlock` exceeds the current head by even 1 block.
+Always paginate in chunks ≤ 2000 blocks and clamp `toBlock` to `latestBlock - 1` before querying.
 
-- `ZEUS_ESCROW_BOT_ADDRESS` — read by api-server at startup
-- `VITE_ESCROW_BOT_ADDRESS` — read by Vite frontend build
-- `ESCROW_DEPLOY_BLOCK` — getLogs start block; update if contract is redeployed
-- `TOKEN_ADDRESS` — used by the deploy script
-
-## Secrets set
-
-- `PRIVATE_KEY` — deployer EOA private key
-- `BASESCAN_API_KEY` — for contract verification
-
-## RPC quirk
-
-**Why:** Base Sepolia public RPC (`https://sepolia.base.org`) rejects `eth_getLogs` requests
-spanning more than 2000 blocks.
-
-**How to apply:** In `api-server/src/routes/escrow.ts`, `fetchLogsInChunks()` paginates
-from `ESCROW_DEPLOY_BLOCK` in 1999-block steps. If the contract is redeployed, update
-`ESCROW_DEPLOY_BLOCK` env var and restart the API server.
+## Hardhat config API key
+`contracts/hardhat.config.ts` reads `ETHERSCAN_API_KEY` (falling back to `BASESCAN_API_KEY`) for BaseScan V2 verification via `https://api.etherscan.io/v2/api?chainid=<id>`.
