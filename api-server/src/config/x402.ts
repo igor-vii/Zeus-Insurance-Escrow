@@ -27,4 +27,11 @@ export const x402Routes: RoutesConfig = {
       description: "Zeus Insurance — prepare policy calldata for AI agents",
     },
   },
+  "/api/escrow/create": {
+    price: "$0.001",
+    network: "base-sepolia",
+    config: {
+      description: "Zeus Escrow — automatically create an escrow agreement on Base Mainnet",
+    },
+  },
 };

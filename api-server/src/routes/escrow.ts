@@ -3,6 +3,10 @@ import { z } from "zod";
 import { encodeFunctionData, isAddress } from "viem";
 import { ZEUS_ESCROW_BOT_ADDRESS, ZEUS_ESCROW_BOT_ABI } from "../lib/escrow-contracts.js";
 import { publicClient } from "../lib/chain.js";
+import {
+  isEscrowAutomaticModeAvailable,
+  createEscrowAgreement,
+} from "../services/escrow.js";
 
 const router = Router();
 
@@ -190,6 +194,47 @@ router.get("/agreements", async (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: "Failed to fetch agreements", detail: msg });
+  }
+});
+
+// ─── POST /api/escrow/create (automatic mode) ────────────────────────────────
+const createSchema = z.object({
+  executor: z.string().refine(isAddress, "Invalid executor address"),
+  amount: z.string().regex(/^\d+$/, "amount must be a positive integer string"),
+  timeoutSeconds: z.coerce.number().int().min(60),
+});
+
+router.post("/create", async (req, res) => {
+  if (!isEscrowAutomaticModeAvailable()) {
+    res.status(503).json({
+      error: "Automatic escrow mode unavailable — SERVER_PRIVATE_KEY not configured",
+    });
+    return;
+  }
+
+  const parsed = createSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+
+  const { executor, amount, timeoutSeconds } = parsed.data;
+
+  try {
+    const result = await createEscrowAgreement({
+      executor,
+      amount: BigInt(amount),
+      timeout: timeoutSeconds,
+    });
+
+    res.json({
+      mode: "automatic",
+      agreementId: result.agreementId,
+      txHash: result.txHash,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: "Failed to create escrow agreement", detail: msg });
   }
 });
 
