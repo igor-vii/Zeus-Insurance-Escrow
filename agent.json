@@ -1,22 +1,65 @@
 {
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Zeus Insurance Protocol",
-  "description": "Decentralized insurance for AI agents and Web3 projects. Protects against API failures, technical downtime, and oracle risks.",
-  "version": "1.1.0",
-  "url": "https://github.com/igor-vii/Zeus-Insurance-Escrow",
+  "description": "Decentralized insurance and escrow protocol for AI agents. Protects against API failures, technical downtime, and counterparty risk. Supports x402 payments for autonomous agent transactions.",
+  "version": "1.2.0",
+  "image": "https://zeus-insurance-v2.netlify.app/logo.png",
+  "x402Support": true,
+  "active": true,
+  "services": [
+    {
+      "name": "web",
+      "endpoint": "https://zeus-insurance-v2.netlify.app"
+    },
+    {
+      "name": "API",
+      "endpoint": "https://api.zeus-insurance.com",
+      "version": "v1"
+    },
+    {
+      "name": "x402",
+      "endpoint": "https://api.zeus-insurance.com/api/x402/info"
+    },
+    {
+      "name": "agentWallet",
+      "endpoint": "eip155:8453:0xaF8c45345e79dA97Dd41db5FE04d13ad4BEB1640"
+    }
+  ],
+  "registrations": [
+    {
+      "agentId": "1",
+      "agentRegistry": "eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+    }
+  ],
+  "supportedTrust": [
+    "reputation",
+    "crypto-economic"
+  ],
   "api": {
     "baseUrl": "https://api.zeus-insurance.com",
     "endpoints": {
       "quote": "/api/quote",
-      "prepareBuy": "/api/insurance/prepare-buy",
-      "policies": "/api/insurance/policies",
-      "policy": "/api/insurance/policies/:id",
-      "claim": "/api/insurance/claim",
-      "reserve": "/api/insurance/reserve",
+      "prepareBuy": "/api/prepare-buy",
+      "policies": "/api/policies",
+      "policy": "/api/policies/:id",
+      "claim": "/api/claim",
+      "reserve": "/api/reserve",
+      "escrowCreate": "/api/escrow/create",
+      "escrowDeposit": "/api/escrow/prepare-deposit",
+      "escrowConfirm": "/api/escrow/prepare-confirm",
+      "escrowRefund": "/api/escrow/prepare-refund",
       "x402Info": "/api/x402/info"
     }
   },
   "contracts": {
     "networks": {
+      "base-mainnet": {
+        "chainId": 8453,
+        "addresses": {
+          "ZeusEscrowBOT": "0x8D10C2c6C92b613C1938fe532f0e391044e76188",
+          "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        }
+      },
       "base-sepolia": {
         "chainId": 84532,
         "addresses": {
@@ -24,18 +67,7 @@
           "ZeusReserveV2": "0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47",
           "ZeusEscrowBOT": "0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76",
           "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-        },
-        "note": "Testnet — ZeusEscrowBOT deployed without protocol fee"
-      },
-      "base-mainnet": {
-        "chainId": 8453,
-        "addresses": {
-          "ZeusInsuranceV2": "",
-          "ZeusReserveV2": "",
-          "ZeusEscrowBOT": "0x8D10C2c6C92b613C1938fe532f0e391044e76188",
-          "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-        },
-        "note": "Mainnet — run deploy:escrow-mainnet with TREASURY_ADDRESS to populate addresses"
+        }
       }
     }
   },
@@ -46,13 +78,7 @@
       "note": "Fee only applies when treasury address is set at deployment"
     }
   },
-  "sdk": {
-    "package": "@zeus/sdk",
-    "repository": "https://github.com/igor-vii/Zeus-Insurance-Escrow/tree/main/sdk",
-    "supportedNetworks": ["base-mainnet", "base-sepolia", "sepolia", "localhost"]
-  },
   "x402": {
-    "supported": true,
     "network": "eip155:84532",
     "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     "modes": {
@@ -78,15 +104,8 @@
       ],
       "returns": "bool"
     },
-    "getPolicy": {
-      "description": "Get policy details",
-      "parameters": [
-        { "name": "policyId", "type": "uint256" }
-      ],
-      "returns": "Policy struct"
-    },
     "depositAndCreateAgreement": {
-      "description": "Create an escrow agreement (with protocol fee when treasury is set)",
+      "description": "Create an escrow agreement on Base Mainnet (with 0.7% + $0.02 protocol fee)",
       "parameters": [
         { "name": "executor", "type": "address" },
         { "name": "amount", "type": "uint256", "note": "Total including fee" },
