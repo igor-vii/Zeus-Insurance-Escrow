@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Signer, Provider } from "ethers";
+import type { Signer, Provider } from "ethers"; // eslint-disable-line @typescript-eslint/no-unused-vars
 
 /* ──────────────────────────── Networks ──────────────────────────── */
 
@@ -129,6 +129,36 @@ export const GetPolicySchema = z.object({
     .nonnegative("Policy ID must be non-negative"),
 });
 
+const BYTES32_REGEX = /^0x[a-fA-F0-9]{64}$/;
+const BYTES_HEX_REGEX = /^0x[a-fA-F0-9]*$/;
+
+export const SubmitObservationSchema = z.object({
+  policyId: z
+    .number()
+    .int("Policy ID must be an integer")
+    .nonnegative("Policy ID must be non-negative"),
+  observation: z.object({
+    /** keccak256(buyer, seller, timestamp) — unique per health-check round. */
+    requestId:    z.string().regex(BYTES32_REGEX,   "requestId must be a 0x-prefixed 32-byte hex string"),
+    /** Unix timestamp of the observation (±120 s tolerance on-chain). */
+    timestamp:    z.number().int().nonnegative(),
+    /**
+     * Service health code:
+     *   0 = OK
+     *   1 = TIMEOUT  (counts toward payout quorum)
+     *   2 = ERROR_500
+     *   3 = LATE
+     */
+    status:       z.number().int().min(0).max(3),
+    /** Arbitrary metadata digest (e.g. IPFS CID of raw logs). */
+    metadataHash: z.string().regex(BYTES32_REGEX,   "metadataHash must be a 0x-prefixed 32-byte hex string"),
+    /** Per-watcher anti-replay nonce. */
+    nonce:        z.number().int().nonnegative(),
+    /** EIP-191 personal_sign over (requestId, timestamp, status, metadataHash, nonce). */
+    signature:    z.string().regex(BYTES_HEX_REGEX, "signature must be a 0x-prefixed hex string"),
+  }),
+});
+
 /* ──────────────────────────── Domain Types ──────────────────────────── */
 
 /**
@@ -156,6 +186,36 @@ export interface Agreement {
   proof: string | null;
 }
 
+/**
+ * On-chain PolicyStatus enum (ZeusInsuranceV2).
+ * Mirrors `enum PolicyStatus { Active, Claimed, Rejected, Expired }`.
+ */
+export enum PolicyStatus {
+  Active   = 0,
+  Claimed  = 1,
+  Rejected = 2,
+  Expired  = 3,
+}
+
+/**
+ * Off-chain observation submitted by a watcher node.
+ * Mirrors the `Observation` struct in ZeusInsuranceV2.
+ */
+export interface Observation {
+  /** keccak256(buyer, seller, timestamp) */
+  requestId:    string;
+  /** Unix timestamp of the check (±120 s tolerance on-chain). */
+  timestamp:    number;
+  /** 0=OK 1=TIMEOUT 2=ERROR_500 3=LATE */
+  status:       0 | 1 | 2 | 3;
+  /** Arbitrary metadata digest. */
+  metadataHash: string;
+  /** Per-watcher anti-replay nonce. */
+  nonce:        number;
+  /** EIP-191 personal_sign over (requestId, timestamp, status, metadataHash, nonce). */
+  signature:    string;
+}
+
 export interface Policy {
   /** Policy ID (mapping key in the contract). */
   id: number;
@@ -168,8 +228,13 @@ export interface Policy {
   /** Unix timestamp after which the buyer may claim a payout. */
   retryDeadline: number;
   maxRetries: number;
+  /** On-chain status enum value. */
+  status: PolicyStatus;
+  /** Derived: status === PolicyStatus.Active */
   isActive: boolean;
+  /** Derived: status === PolicyStatus.Claimed */
   isPaidOut: boolean;
+  /** Derived: status === PolicyStatus.Expired */
   isExpired: boolean;
 }
 

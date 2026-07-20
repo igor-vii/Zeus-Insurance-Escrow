@@ -103,6 +103,34 @@ export const GetPolicySchema = z.object({
         .int("Policy ID must be an integer")
         .nonnegative("Policy ID must be non-negative"),
 });
+const BYTES32_REGEX = /^0x[a-fA-F0-9]{64}$/;
+const BYTES_HEX_REGEX = /^0x[a-fA-F0-9]*$/;
+export const SubmitObservationSchema = z.object({
+    policyId: z
+        .number()
+        .int("Policy ID must be an integer")
+        .nonnegative("Policy ID must be non-negative"),
+    observation: z.object({
+        /** keccak256(buyer, seller, timestamp) — unique per health-check round. */
+        requestId: z.string().regex(BYTES32_REGEX, "requestId must be a 0x-prefixed 32-byte hex string"),
+        /** Unix timestamp of the observation (±120 s tolerance on-chain). */
+        timestamp: z.number().int().nonnegative(),
+        /**
+         * Service health code:
+         *   0 = OK
+         *   1 = TIMEOUT  (counts toward payout quorum)
+         *   2 = ERROR_500
+         *   3 = LATE
+         */
+        status: z.number().int().min(0).max(3),
+        /** Arbitrary metadata digest (e.g. IPFS CID of raw logs). */
+        metadataHash: z.string().regex(BYTES32_REGEX, "metadataHash must be a 0x-prefixed 32-byte hex string"),
+        /** Per-watcher anti-replay nonce. */
+        nonce: z.number().int().nonnegative(),
+        /** EIP-191 personal_sign over (requestId, timestamp, status, metadataHash, nonce). */
+        signature: z.string().regex(BYTES_HEX_REGEX, "signature must be a 0x-prefixed hex string"),
+    }),
+});
 /* ──────────────────────────── Domain Types ──────────────────────────── */
 /**
  * Mirrors ZeusEscrowBOT.AgreementStatus on-chain enum.
@@ -113,6 +141,17 @@ export var AgreementStatus;
     AgreementStatus[AgreementStatus["Completed"] = 1] = "Completed";
     AgreementStatus[AgreementStatus["Refunded"] = 2] = "Refunded";
 })(AgreementStatus || (AgreementStatus = {}));
+/**
+ * On-chain PolicyStatus enum (ZeusInsuranceV2).
+ * Mirrors `enum PolicyStatus { Active, Claimed, Rejected, Expired }`.
+ */
+export var PolicyStatus;
+(function (PolicyStatus) {
+    PolicyStatus[PolicyStatus["Active"] = 0] = "Active";
+    PolicyStatus[PolicyStatus["Claimed"] = 1] = "Claimed";
+    PolicyStatus[PolicyStatus["Rejected"] = 2] = "Rejected";
+    PolicyStatus[PolicyStatus["Expired"] = 3] = "Expired";
+})(PolicyStatus || (PolicyStatus = {}));
 /* ──────────────────────────── Error Classes ──────────────────────────── */
 export class ZeusError extends Error {
     code;

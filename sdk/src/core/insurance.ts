@@ -4,26 +4,47 @@ import {
   CreatePolicySchema,
   ClaimPayoutSchema,
   GetPolicySchema,
+  SubmitObservationSchema,
   ZeusError,
   ZeusNotConnectedError,
   ZeusValidationError,
   ZeusTransactionError,
   ZeusContractError,
+  PolicyStatus,
   type TransactionResult,
   type Policy,
+  type Observation,
 } from "../types/index.js";
 
-// Matches the deployed ZeusInsuranceV2 contract exactly.
+/**
+ * ZeusInsuranceV2 ABI — covers both the original timeout-based interface
+ * and the new oracle/watcher observation interface.
+ *
+ * getPolicy returns a PolicyStatus enum (uint8) for `status` instead of
+ * the three boolean flags (isActive, isPaidOut, isExpired) from v1.
+ * The SDK derives the boolean fields from the enum value.
+ */
 const INSURANCE_ABI = [
-  // buyInsurance(seller, amount, timeoutSeconds, maxRetries)
+  // ── Policy management ──────────────────────────────────────────────────────
   "function buyInsurance(address seller, uint256 amount, uint256 timeoutSeconds, uint256 maxRetries) external",
   "function claimPayout(uint256 policyId) external",
-  // getPolicy returns the on-chain Policy struct
-  "function getPolicy(uint256 policyId) external view returns (tuple(address buyer, address seller, uint256 amount, uint256 premium, uint256 retryDeadline, uint256 maxRetries, bool isActive, bool isPaidOut, bool isExpired))",
-  // Events
+  "function getPolicy(uint256 policyId) external view returns (tuple(address buyer, address seller, uint256 amount, uint256 premium, uint256 retryDeadline, uint256 maxRetries, uint8 status))",
+  // ── Oracle observation ─────────────────────────────────────────────────────
+  "function submitObservation(uint256 policyId, tuple(bytes32 requestId, uint256 timestamp, uint8 status, bytes32 metadataHash, uint256 nonce, bytes signature) obs) external",
+  // ── Watcher management (owner-only) ────────────────────────────────────────
+  "function addWatcher(address watcher) external",
+  "function removeWatcher(address watcher) external",
+  "function getWatchers() external view returns (address[])",
+  "function isWatcher(address) external view returns (bool)",
+  // ── Events ─────────────────────────────────────────────────────────────────
   "event PolicyCreated(uint256 indexed policyId, address indexed buyer, address indexed seller, uint256 amount, uint256 premium, uint256 retryDeadline)",
   "event PayoutExecuted(uint256 indexed policyId, uint256 amount)",
   "event PolicyExpired(uint256 indexed policyId)",
+  "event ObservationSubmitted(bytes32 indexed requestId, address indexed watcher, uint8 status)",
+  "event VoteResolved(bytes32 indexed requestId, uint8 decision, uint256 indexed policyId)",
+  "event ClaimRejected(uint256 indexed policyId)",
+  "event WatcherAdded(address indexed watcher)",
+  "event WatcherRemoved(address indexed watcher)",
 ] as const;
 
 const USDC_ABI = [
@@ -214,6 +235,66 @@ export class ZeusInsurance {
     }
   }
 
+  /**
+   * Submit a signed oracle observation on behalf of a watcher.
+   *
+   * The observation must be signed by a registered watcher address using
+   * EIP-191 personal_sign over keccak256(requestId, timestamp, status,
+   * metadataHash, nonce).  Any account can relay the signed struct — the
+   * contract verifies authenticity via ECDSA.
+   *
+   * Vote resolution fires automatically once ≥ 3 observations accumulate for
+   * the same requestId:
+   *   ≥ 2 TIMEOUT (status=1) votes → payout approved
+   *   otherwise                    → claim rejected
+   *
+   * @param policyId     ID of the policy being observed.
+   * @param observation  Signed observation struct from the watcher.
+   */
+  async submitObservation(
+    policyId: number,
+    observation: Observation,
+  ): Promise<TransactionResult> {
+    const parsed = SubmitObservationSchema.safeParse({ policyId, observation });
+    if (!parsed.success) {
+      throw new ZeusValidationError(
+        "Invalid parameters for submitObservation",
+        parsed.error.issues,
+      );
+    }
+
+    const contract = this.getContract();
+    const obs = parsed.data.observation;
+
+    try {
+      const tx = await contract.submitObservation(BigInt(parsed.data.policyId), {
+        requestId:    obs.requestId,
+        timestamp:    BigInt(obs.timestamp),
+        status:       obs.status,
+        metadataHash: obs.metadataHash,
+        nonce:        BigInt(obs.nonce),
+        signature:    obs.signature,
+      });
+      const receipt: TransactionReceipt | null = await tx.wait();
+      if (!receipt) {
+        throw new ZeusTransactionError(
+          "Transaction was submitted but no receipt was received.",
+        );
+      }
+      if (receipt.status === 0) {
+        throw new ZeusTransactionError("Transaction reverted.", receipt.hash);
+      }
+      return this.buildTxResult(receipt);
+    } catch (err) {
+      if (err instanceof ZeusError) throw err;
+      throw new ZeusTransactionError(
+        `Failed to submit observation: ${(err as Error).message}`,
+        undefined,
+        err,
+      );
+    }
+  }
+
   /** Read policy state from chain. */
   async getPolicy(policyId: number): Promise<Policy> {
     const parsed = GetPolicySchema.safeParse({ policyId });
@@ -228,6 +309,7 @@ export class ZeusInsurance {
 
     try {
       const p = await contract.getPolicy(BigInt(parsed.data.policyId));
+      const status = Number(p.status) as PolicyStatus;
       return {
         id: parsed.data.policyId,
         buyer: String(p.buyer),
@@ -236,9 +318,10 @@ export class ZeusInsurance {
         premium: BigInt(p.premium),
         retryDeadline: Number(p.retryDeadline),
         maxRetries: Number(p.maxRetries),
-        isActive: Boolean(p.isActive),
-        isPaidOut: Boolean(p.isPaidOut),
-        isExpired: Boolean(p.isExpired),
+        status,
+        isActive:  status === PolicyStatus.Active,
+        isPaidOut: status === PolicyStatus.Claimed,
+        isExpired: status === PolicyStatus.Expired,
       };
     } catch (err) {
       if (err instanceof ZeusError) throw err;

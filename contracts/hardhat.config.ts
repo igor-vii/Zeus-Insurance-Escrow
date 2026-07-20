@@ -17,12 +17,18 @@ const config: HardhatUserConfig = {
     compilers: [
       {
         version: "0.8.27",
-        settings: { optimizer: { enabled: true, runs: 200 } },
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          evmVersion: "cancun",   // required for OZ 5.x (mcopy opcode)
+        },
       },
       {
         // ZeusEscrowBOT.sol — pinned to 0.8.24 for BOT Chain compatibility
         version: "0.8.24",
-        settings: { optimizer: { enabled: true, runs: 200 } },
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          evmVersion: "cancun",   // required for OZ 5.x (mcopy opcode)
+        },
       },
     ],
   },
