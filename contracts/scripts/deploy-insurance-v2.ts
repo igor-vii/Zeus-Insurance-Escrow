@@ -61,6 +61,8 @@ async function main() {
       const tx = await insurance.addWatcher(watcher);
       await tx.wait();
       console.log(`  ✅ Added watcher: ${watcher}`);
+      // Small delay to avoid in-flight tx limit on public RPCs
+      await new Promise(r => setTimeout(r, 1500));
     }
   } else {
     console.log("\n⚠️  No watchers configured. Add them later with addWatcher().");

@@ -43,6 +43,7 @@ packages:
   - lib/integrations/*
   - scripts
   - sdk
+  - watcher
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.21

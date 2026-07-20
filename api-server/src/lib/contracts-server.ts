@@ -1,6 +1,6 @@
 // ─── Deployed addresses (Base Sepolia testnet) ───────────────────────────────
 export const ZEUS_INSURANCE_ADDRESS =
-  "0xE0b89E0DEa7Fc7AEa7CEcC62a0A14d52de42Ce3b" as const;
+  "0x58038Df01A824C94F3D2fEd6d4e1bEf2211Ad8F4" as const;
 
 export const ZEUS_RESERVE_ADDRESS =
   "0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47" as const;
@@ -33,15 +33,13 @@ export const ZEUS_INSURANCE_ABI = [
     outputs: [
       {
         components: [
-          { internalType: "address", name: "buyer", type: "address" },
-          { internalType: "address", name: "seller", type: "address" },
-          { internalType: "uint256", name: "amount", type: "uint256" },
-          { internalType: "uint256", name: "premium", type: "uint256" },
+          { internalType: "address", name: "buyer",         type: "address" },
+          { internalType: "address", name: "seller",        type: "address" },
+          { internalType: "uint256", name: "amount",        type: "uint256" },
+          { internalType: "uint256", name: "premium",       type: "uint256" },
           { internalType: "uint256", name: "retryDeadline", type: "uint256" },
-          { internalType: "uint256", name: "maxRetries", type: "uint256" },
-          { internalType: "bool", name: "isActive", type: "bool" },
-          { internalType: "bool", name: "isPaidOut", type: "bool" },
-          { internalType: "bool", name: "isExpired", type: "bool" },
+          { internalType: "uint256", name: "maxRetries",    type: "uint256" },
+          { internalType: "uint8",   name: "status",        type: "uint8"   },
         ],
         internalType: "struct ZeusInsuranceV2.Policy",
         name: "",

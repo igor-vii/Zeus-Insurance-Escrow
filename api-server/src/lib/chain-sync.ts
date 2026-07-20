@@ -84,8 +84,13 @@ export async function fetchAndCachePolicies(buyer: string): Promise<CachedPolicy
     const p = r.result as {
       buyer: string; seller: string; amount: bigint; premium: bigint;
       retryDeadline: bigint; maxRetries: bigint;
-      isActive: boolean; isPaidOut: boolean; isExpired: boolean;
+      // V2 contract: PolicyStatus enum (0=Active,1=Claimed,2=Rejected,3=Expired)
+      status?: number;
+      // Legacy boolean fields (V1 compat — may be absent)
+      isActive?: boolean; isPaidOut?: boolean; isExpired?: boolean;
     };
+    // Derive booleans from enum when present (new contract), or use raw booleans (old)
+    const status = p.status ?? (p.isActive ? 0 : p.isPaidOut ? 1 : p.isExpired ? 3 : 0);
     policies.push({
       id: ids[i].toString(),
       buyer: p.buyer,
@@ -94,9 +99,9 @@ export async function fetchAndCachePolicies(buyer: string): Promise<CachedPolicy
       premium: p.premium.toString(),
       retryDeadline: p.retryDeadline.toString(),
       maxRetries: p.maxRetries.toString(),
-      isActive: p.isActive,
-      isPaidOut: p.isPaidOut,
-      isExpired: p.isExpired,
+      isActive:  status === 0,
+      isPaidOut: status === 1,
+      isExpired: status === 3,
     });
   }
 
@@ -117,9 +122,11 @@ export async function fetchAndCachePolicy(id: string): Promise<CachedPolicy | nu
     })) as {
       buyer: string; seller: string; amount: bigint; premium: bigint;
       retryDeadline: bigint; maxRetries: bigint;
-      isActive: boolean; isPaidOut: boolean; isExpired: boolean;
+      status?: number;
+      isActive?: boolean; isPaidOut?: boolean; isExpired?: boolean;
     };
 
+    const status = p.status ?? (p.isActive ? 0 : p.isPaidOut ? 1 : p.isExpired ? 3 : 0);
     const policy: CachedPolicy = {
       id,
       buyer: p.buyer,
@@ -128,9 +135,9 @@ export async function fetchAndCachePolicy(id: string): Promise<CachedPolicy | nu
       premium: p.premium.toString(),
       retryDeadline: p.retryDeadline.toString(),
       maxRetries: p.maxRetries.toString(),
-      isActive: p.isActive,
-      isPaidOut: p.isPaidOut,
-      isExpired: p.isExpired,
+      isActive:  status === 0,
+      isPaidOut: status === 1,
+      isExpired: status === 3,
     };
 
     void upsertPolicies([policy]);

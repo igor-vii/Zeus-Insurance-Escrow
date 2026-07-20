@@ -40,8 +40,8 @@ router.get("/quote", (req, res) => {
     return;
   }
   const { amount, maxRetries } = parsed.data;
-  const premiumAmount = computePremium(BigInt(amount), maxRetries);
   const premiumBps = 700 + (maxRetries - 1) * 200;
+  const premiumAmount = (BigInt(amount) * BigInt(premiumBps)) / 10000n;
   res.json({ premiumBps, premiumAmount: premiumAmount.toString(), totalCost: premiumAmount.toString() });
 });
 
@@ -49,9 +49,15 @@ router.get("/quote", (req, res) => {
 const prepareBuySchema = z.object({
   seller: z.string().refine(isAddress, "Invalid seller address"),
   amount: z.string().regex(/^\d+$/, "amount must be a non-negative integer string"),
-  timeoutSeconds: z.coerce.number().int().min(60),
+  // Accept both "timeout" and "timeoutSeconds" for ergonomics
+  timeoutSeconds: z.coerce.number().int().min(60).optional(),
+  timeout: z.coerce.number().int().min(60).optional(),
   maxRetries: z.coerce.number().int().min(1).max(10),
-});
+  apiEndpoint: z.string().url().optional(),
+}).transform(d => ({
+  ...d,
+  timeoutSeconds: d.timeoutSeconds ?? d.timeout ?? 3600,
+}));
 
 router.post("/prepare-buy", async (req, res) => {
   const parsed = prepareBuySchema.safeParse(req.body);
