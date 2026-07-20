@@ -1,4 +1,4 @@
-import { describe, it, before, beforeEach } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   ZeusSDK,
@@ -13,11 +13,15 @@ import {
 const MOCK_ADDRESS = "0x1234567890123456789012345678901234567890";
 const MOCK_EXECUTOR = "0xAbCdEf0123456789AbCdEf0123456789AbCdEf01";
 
-function createMockSigner() {
+/**
+ * Creates a mock ethers signer whose provider reports the given chainId.
+ * Defaults to 84532 (Base Sepolia) — the most-used network in these tests.
+ */
+function createMockSigner(chainId = 84532n) {
   return {
     getAddress: async () => MOCK_ADDRESS,
     provider: {
-      getNetwork: async () => ({ chainId: 1n }),
+      getNetwork: async () => ({ chainId }),
       send: async () => ({}),
     },
   };
@@ -48,36 +52,87 @@ describe("ZeusClient", () => {
 
   it("should connect to base-sepolia and be ready", async () => {
     const sdk = new ZeusSDK();
-    await sdk.client.connect("base-sepolia", createMockSigner() as any);
+    await sdk.client.connect("base-sepolia", createMockSigner(84532n) as any);
     assert.equal(sdk.client.isReady(), true);
     assert.equal(sdk.client.getAddress(), MOCK_ADDRESS);
     assert.equal(sdk.client.getNetwork().chainId, 84532);
   });
 
+  it("should connect to base-mainnet and be ready", async () => {
+    const sdk = new ZeusSDK();
+    await sdk.client.connect("base-mainnet", createMockSigner(8453n) as any);
+    assert.equal(sdk.client.isReady(), true);
+    assert.equal(sdk.client.getNetwork().chainId, 8453);
+  });
+
   it("should throw ZeusValidationError for unknown network", async () => {
     const sdk = new ZeusSDK();
     await assert.rejects(
-      () => sdk.client.connect("polygon", createMockSigner() as any),
+      () => sdk.client.connect("polygon", createMockSigner(137n) as any),
       ZeusValidationError,
     );
   });
 
   it("should disconnect and become not ready", async () => {
     const sdk = new ZeusSDK();
-    await sdk.client.connect("base-sepolia", createMockSigner() as any);
+    await sdk.client.connect("base-sepolia", createMockSigner(84532n) as any);
     assert.equal(sdk.client.isReady(), true);
     sdk.client.disconnect();
     assert.equal(sdk.client.isReady(), false);
   });
 
-  it("should connect to all supported networks", async () => {
-    const networks = ["mainnet", "base-sepolia", "sepolia", "localhost"] as const;
-    for (const network of networks) {
+  it("should connect to all supported networks with matching chainIds", async () => {
+    const cases = [
+      { network: "mainnet",      chainId: 1n        },
+      { network: "base-mainnet", chainId: 8453n     },
+      { network: "base-sepolia", chainId: 84532n    },
+      { network: "sepolia",      chainId: 11155111n },
+      { network: "localhost",    chainId: 31337n    },
+    ] as const;
+    for (const { network, chainId } of cases) {
       const sdk = new ZeusSDK();
-      await sdk.client.connect(network, createMockSigner() as any);
+      await sdk.client.connect(network, createMockSigner(chainId) as any);
       assert.equal(sdk.client.isReady(), true);
       assert.equal(sdk.client.getNetwork().name, network);
     }
+  });
+
+  // ── chainId mismatch tests ──────────────────────────────────────────────────
+
+  it("throws ZeusValidationError when signer is on mainnet but network is base-sepolia", async () => {
+    const sdk = new ZeusSDK();
+    await assert.rejects(
+      () => sdk.client.connect("base-sepolia", createMockSigner(1n) as any),
+      (err: unknown) => {
+        assert.ok(err instanceof ZeusValidationError, `expected ZeusValidationError, got ${err}`);
+        assert.match(err.message, /84532/);
+        return true;
+      },
+    );
+  });
+
+  it("throws ZeusValidationError when signer is on base-sepolia but network is base-mainnet", async () => {
+    const sdk = new ZeusSDK();
+    await assert.rejects(
+      () => sdk.client.connect("base-mainnet", createMockSigner(84532n) as any),
+      (err: unknown) => {
+        assert.ok(err instanceof ZeusValidationError, `expected ZeusValidationError, got ${err}`);
+        assert.match(err.message, /8453/);
+        return true;
+      },
+    );
+  });
+
+  it("throws ZeusValidationError when signer is on wrong chain for mainnet", async () => {
+    const sdk = new ZeusSDK();
+    await assert.rejects(
+      () => sdk.client.connect("mainnet", createMockSigner(84532n) as any),
+      (err: unknown) => {
+        assert.ok(err instanceof ZeusValidationError, `expected ZeusValidationError, got ${err}`);
+        assert.match(err.message, /1/); // expects chain 1
+        return true;
+      },
+    );
   });
 });
 
@@ -87,6 +142,25 @@ describe("NETWORKS", () => {
   it("should have base-sepolia with correct chainId", () => {
     assert.ok(NETWORKS["base-sepolia"]);
     assert.equal(NETWORKS["base-sepolia"].chainId, 84532);
+  });
+
+  it("should have base-mainnet with correct chainId", () => {
+    assert.ok(NETWORKS["base-mainnet"]);
+    assert.equal(NETWORKS["base-mainnet"].chainId, 8453);
+  });
+
+  it("base-mainnet should have the deployed escrow address", () => {
+    assert.equal(
+      NETWORKS["base-mainnet"].escrowAddress,
+      "0x8D10C2c6C92b613C1938fe532f0e391044e76188",
+    );
+  });
+
+  it("base-mainnet should have mainnet USDC address", () => {
+    assert.equal(
+      NETWORKS["base-mainnet"].usdcAddress,
+      "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    );
   });
 
   it("base-sepolia should have the deployed escrow address", () => {
@@ -146,7 +220,7 @@ describe("Error Classes", () => {
 describe("ZeusEscrow — input validation", () => {
   it("depositAndCreateAgreement rejects invalid executor address", async () => {
     const sdk = new ZeusSDK();
-    await sdk.client.connect("base-sepolia", createMockSigner() as any);
+    await sdk.client.connect("base-sepolia", createMockSigner(84532n) as any);
     await assert.rejects(
       () => sdk.escrow.depositAndCreateAgreement("not-an-address", 1_000_000n, 3600),
       ZeusValidationError,
@@ -155,7 +229,7 @@ describe("ZeusEscrow — input validation", () => {
 
   it("depositAndCreateAgreement rejects zero amount", async () => {
     const sdk = new ZeusSDK();
-    await sdk.client.connect("base-sepolia", createMockSigner() as any);
+    await sdk.client.connect("base-sepolia", createMockSigner(84532n) as any);
     await assert.rejects(
       () => sdk.escrow.depositAndCreateAgreement(MOCK_EXECUTOR, 0n, 3600),
       ZeusValidationError,
@@ -164,7 +238,7 @@ describe("ZeusEscrow — input validation", () => {
 
   it("depositAndCreateAgreement rejects negative timeout", async () => {
     const sdk = new ZeusSDK();
-    await sdk.client.connect("base-sepolia", createMockSigner() as any);
+    await sdk.client.connect("base-sepolia", createMockSigner(84532n) as any);
     await assert.rejects(
       () => sdk.escrow.depositAndCreateAgreement(MOCK_EXECUTOR, 1_000_000n, -1),
       ZeusValidationError,
@@ -173,7 +247,7 @@ describe("ZeusEscrow — input validation", () => {
 
   it("getAgreement rejects negative agreementId", async () => {
     const sdk = new ZeusSDK();
-    await sdk.client.connect("base-sepolia", createMockSigner() as any);
+    await sdk.client.connect("base-sepolia", createMockSigner(84532n) as any);
     await assert.rejects(
       () => sdk.escrow.getAgreement(-1),
       ZeusValidationError,
@@ -195,10 +269,11 @@ describe("ZeusEscrow — not connected", () => {
 
 // ─── ZeusInsurance ────────────────────────────────────────────────────────────
 
-describe("ZeusInsurance — no insuranceAddress on base-sepolia", () => {
+describe("ZeusInsurance — no insuranceAddress on base-mainnet", () => {
   it("throws ZeusContractError when insuranceAddress is not set", async () => {
     const sdk = new ZeusSDK();
-    await sdk.client.connect("base-sepolia", createMockSigner() as any);
+    // base-mainnet has insuranceAddress: "" — contract guard should fire
+    await sdk.client.connect("base-mainnet", createMockSigner(8453n) as any);
     await assert.rejects(() => sdk.insurance.getPolicy(0), ZeusContractError);
   });
 });
