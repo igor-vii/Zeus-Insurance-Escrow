@@ -1,5 +1,5 @@
 // Zeus Insurance — OKX Fund Pitch Deck Generator
-// Run: node scripts/generate-pitch-deck.js
+// Run: node scripts/generate-pitch-deck.cjs
 
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
@@ -8,12 +8,12 @@ const path = require('path');
 const OUT = path.join(__dirname, '..', 'Zeus_Insurance_Pitch_Deck.pdf');
 
 // ── Palette ──────────────────────────────────────────────────────────────────
-const BG       = '#080c14';   // deep navy
-const GOLD     = '#F5A623';   // primary / Zeus lightning
+const BG       = '#080c14';
+const GOLD     = '#F5A623';
 const WHITE    = '#FFFFFF';
-const WHITE60  = '#99A8BF';   // muted text
-const WHITE15  = '#1E2B3D';   // card surface
-const WHITE08  = '#111820';   // slightly elevated
+const WHITE60  = '#99A8BF';
+const WHITE15  = '#1E2B3D';
+const WHITE08  = '#111820';
 const GREEN    = '#22C55E';
 const RED      = '#EF4444';
 
@@ -21,11 +21,6 @@ const W = 841.89;  // A4 landscape width  (pts)
 const H = 595.28;  // A4 landscape height
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-function slide(doc, drawFn) {
-  drawFn(doc);
-  doc.addPage();
-}
-
 function bg(doc, color = BG) {
   doc.rect(0, 0, W, H).fill(color);
 }
@@ -40,13 +35,13 @@ function grid(doc) {
   doc.restore();
 }
 
-// Zeus shield SVG-style drawn with pdfkit primitives
+// Zeus shield drawn with pdfkit primitives
 function zeusShield(doc, x, y, size = 80) {
   const s = size / 80;
   doc.save();
   doc.translate(x, y);
 
-  // Shield body (pentagon-ish)
+  // Shield body
   doc.save();
   doc.strokeColor(GOLD).lineWidth(2.5 * s).fillColor('#0f1623');
   doc.moveTo(40 * s, 2 * s)
@@ -93,20 +88,6 @@ function goldBar(doc, x, y, w, h = 3) {
   doc.rect(x, y, w, h).fill(GOLD);
 }
 
-function chip(doc, x, y, label, value, sub, chipW = 160) {
-  doc.roundedRect(x, y, chipW, 72, 8).fill(WHITE15);
-  doc.roundedRect(x, y, chipW, 72, 8).stroke(WHITE08);
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text(label.toUpperCase(), x + 14, y + 12, { width: chipW - 20 });
-  doc.fontSize(20).fillColor(GOLD).font('Helvetica-Bold').text(value, x + 14, y + 26, { width: chipW - 20 });
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text(sub, x + 14, y + 52, { width: chipW - 20 });
-}
-
-function card(doc, x, y, w, h, opts = {}) {
-  const { fill = WHITE15, stroke = WHITE08, radius = 10 } = opts;
-  doc.roundedRect(x, y, w, h, radius).fill(fill);
-  if (stroke) doc.roundedRect(x, y, w, h, radius).stroke(stroke);
-}
-
 function badge(doc, x, y, text, color = GOLD) {
   const tw = doc.widthOfString(text, { fontSize: 8 }) + 24;
   doc.roundedRect(x, y, tw, 22, 11)
@@ -117,17 +98,29 @@ function badge(doc, x, y, text, color = GOLD) {
   return tw;
 }
 
-function bullet(doc, x, y, icon, text, color = WHITE) {
-  doc.fontSize(14).text(icon, x, y - 2);
-  doc.fontSize(11).fillColor(color).font('Helvetica').text(text, x + 26, y, { width: 240, lineBreak: false });
+function card(doc, x, y, w, h, opts = {}) {
+  const { fill = WHITE15, stroke = WHITE08, radius = 10 } = opts;
+  doc.roundedRect(x, y, w, h, radius).fill(fill);
+  if (stroke) doc.roundedRect(x, y, w, h, radius).stroke(stroke);
+}
+
+function bulletLine(doc, x, y, text, color, lineW) {
+  doc.fontSize(10).fillColor(color).font('Helvetica')
+    .text('> ' + text, x, y, { width: lineW });
+}
+
+function footerLine(doc, pageNum) {
+  zeusShield(doc, W - 60, H - 56, 38);
+  doc.fontSize(8).fillColor(WHITE60).font('Helvetica')
+    .text('Zeus Insurance Protocol  ·  OKX Fund Pitch', 36, H - 28, { width: W - 120 });
+  doc.fontSize(8).fillColor(WHITE60).font('Helvetica')
+    .text(pageNum + ' / 6', W - 60, H - 28, { width: 40, align: 'right' });
 }
 
 // ── SLIDE 1 — Title ──────────────────────────────────────────────────────────
 function slide1(doc) {
   bg(doc);
   grid(doc);
-
-  // Left gold accent bar
   doc.rect(0, 0, 5, H).fill(GOLD);
 
   // Glow behind shield
@@ -136,33 +129,25 @@ function slide1(doc) {
   doc.circle(W / 2, H / 2, 100).fill(GOLD + '18');
   doc.restore();
 
-  // Shield — centered, large
   zeusShield(doc, W / 2 - 90, H / 2 - 120, 180);
 
-  // ZEUS wordmark
   doc.fontSize(52).fillColor(GOLD).font('Helvetica-Bold')
     .text('ZEUS', 0, H / 2 + 75, { align: 'center', width: W });
 
-  // Main title
   doc.fontSize(22).fillColor(WHITE).font('Helvetica-Bold')
     .text('Insurance Protocol', 0, H / 2 + 132, { align: 'center', width: W });
 
-  // Subtitle
   doc.fontSize(14).fillColor(WHITE60).font('Helvetica')
     .text('Trust Layer for the Agentic Economy', 0, H / 2 + 162, { align: 'center', width: W });
 
-  // Gold divider
   goldBar(doc, W / 2 - 100, H / 2 + 195, 200);
 
-  // Bottom tagline
   doc.fontSize(11).fillColor(WHITE60).font('Helvetica')
     .text('Decentralized insurance and escrow for AI agents.', 0, H / 2 + 210, { align: 'center', width: W });
 
-  // Bottom: X Layer + OKX badge
-  badge(doc, 36, H - 50, '● X Layer Mainnet · Chain 196', GREEN);
+  badge(doc, 36, H - 50, 'X Layer Mainnet  |  Chain 196', GREEN);
   badge(doc, 260, H - 50, 'OKX Fund Round 1', GOLD);
 
-  // Top-right small logo repeat
   zeusShield(doc, W - 60, 10, 42);
 }
 
@@ -172,7 +157,6 @@ function slide2(doc) {
   grid(doc);
   doc.rect(0, 0, 5, H).fill(GOLD);
 
-  // Header
   badge(doc, 36, 30, 'THE PROBLEM & SOLUTION');
   doc.fontSize(28).fillColor(WHITE).font('Helvetica-Bold')
     .text('AI Agents Lose Millions on', 36, 62, { width: W - 72 });
@@ -180,52 +164,46 @@ function slide2(doc) {
     .text('Failed API Calls.', 36, 96, { width: W - 72 });
   goldBar(doc, 36, 133, 420, 2);
 
-  // Two columns
   const colW = (W - 72 - 32) / 2;
   const leftX = 36;
   const rightX = leftX + colW + 32;
   const topY = 150;
 
-  // LEFT — Problem card
+  // LEFT — Problem
   card(doc, leftX, topY, colW, H - topY - 50, { fill: RED + '0D', stroke: RED + '30' });
   doc.fontSize(13).fillColor(RED).font('Helvetica-Bold')
-    .text('⚠  The Problem', leftX + 20, topY + 20);
+    .text('The Problem', leftX + 20, topY + 20);
   goldBar(doc, leftX + 20, topY + 42, 60, 2);
 
   const problems = [
-    ['💸', 'API doesn\'t respond → funds already debited.'],
-    ['⏳', 'Refunds require trust and take days.'],
-    ['🧩', 'No standard way to insure a transaction.'],
-    ['🤖', 'AI agents operate autonomously — no human recourse.'],
-    ['📉', 'Every failed call = lost revenue for the agent.'],
+    'API does not respond — funds already debited.',
+    'Refunds require trust and take days.',
+    'No standard way to insure a transaction.',
+    'AI agents operate autonomously — no human recourse.',
+    'Every failed call = lost revenue for the agent.',
   ];
-  problems.forEach(([icon, text], i) => {
-    bullet(doc, leftX + 20, topY + 60 + i * 52, icon, text, '#FFAAAA');
+  problems.forEach((text, i) => {
+    bulletLine(doc, leftX + 20, topY + 58 + i * 52, text, '#FFAAAA', colW - 40);
   });
 
-  // RIGHT — Solution card
+  // RIGHT — Solution
   card(doc, rightX, topY, colW, H - topY - 50, { fill: GOLD + '0D', stroke: GOLD + '30' });
   doc.fontSize(13).fillColor(GOLD).font('Helvetica-Bold')
-    .text('⚡  The Zeus Solution', rightX + 20, topY + 20);
+    .text('The Zeus Solution', rightX + 20, topY + 20);
   goldBar(doc, rightX + 20, topY + 42, 60, 2);
 
   const solutions = [
-    ['🛡️', 'Automatic insurance & escrow on-chain.'],
-    ['⚡', 'Instant payouts from the reserve fund.'],
-    ['🔌', 'Integrate in 3 steps via SDK or REST API.'],
-    ['🤖', 'Fully autonomous — agents need no human.'],
-    ['🔒', 'Non-custodial, trustless, fully auditable.'],
+    'Automatic insurance & escrow on-chain.',
+    'Instant payouts from the reserve fund.',
+    'Integrate in 3 steps via SDK or REST API.',
+    'Fully autonomous — agents need no human.',
+    'Non-custodial, trustless, fully auditable.',
   ];
-  solutions.forEach(([icon, text], i) => {
-    bullet(doc, rightX + 20, topY + 60 + i * 52, icon, text, '#FFE0A0');
+  solutions.forEach((text, i) => {
+    bulletLine(doc, rightX + 20, topY + 58 + i * 52, text, '#FFE0A0', colW - 40);
   });
 
-  // Footer
-  zeusShield(doc, W - 60, H - 56, 38);
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica')
-    .text('Zeus Insurance Protocol  ·  OKX Fund Pitch', 36, H - 28, { width: W - 120 });
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica')
-    .text('2 / 6', W - 60, H - 28, { width: 40, align: 'right' });
+  footerLine(doc, 2);
 }
 
 // ── SLIDE 3 — How It Works ────────────────────────────────────────────────────
@@ -241,7 +219,6 @@ function slide3(doc) {
     .text('in Action.', 36, 96, { width: 480 });
   goldBar(doc, 36, 133, 300, 2);
 
-  // Flow cards
   const flowY = 160;
   const cardW = 195;
   const gap = 44;
@@ -249,24 +226,28 @@ function slide3(doc) {
   const startX = (W - totalW) / 2;
 
   const steps = [
-    { icon: '💳', label: 'AGENT PAYS', value: '$1.00', sub: 'via x402 protocol', color: GOLD, bg: GOLD + '18' },
-    { icon: '⚡', label: 'API FAILS',  value: 'Detected', sub: 'on-chain oracle',  color: RED,  bg: RED  + '18' },
-    { icon: '🛡️', label: 'ZEUS REFUNDS', value: '$0.93', sub: 'in ~5 seconds',  color: GREEN, bg: GREEN + '18' },
+    { label: 'AGENT PAYS',   value: '$1.00',    sub: 'via x402 protocol',  color: GOLD,  bg: GOLD  + '18', tag: '[ 1 ]' },
+    { label: 'API FAILS',    value: 'Detected', sub: 'on-chain oracle',    color: RED,   bg: RED   + '18', tag: '[ 2 ]' },
+    { label: 'ZEUS REFUNDS', value: '$0.93',    sub: 'in ~5 seconds',      color: GREEN, bg: GREEN + '18', tag: '[ 3 ]' },
   ];
 
   steps.forEach((s, i) => {
     const cx = startX + i * (cardW + gap);
-    // Card
     doc.roundedRect(cx, flowY, cardW, 175, 12).fill(s.bg);
     doc.roundedRect(cx, flowY, cardW, 175, 12).stroke(s.color + '60');
-    // Icon
-    doc.fontSize(36).text(s.icon, cx, flowY + 20, { width: cardW, align: 'center' });
+
+    // Step number tag
+    doc.fontSize(10).fillColor(s.color).font('Helvetica-Bold')
+      .text(s.tag, cx + 10, flowY + 14, { width: cardW - 20, align: 'center' });
+
     // Label
     doc.fontSize(9).fillColor(s.color).font('Helvetica-Bold')
-      .text(s.label, cx + 10, flowY + 70, { width: cardW - 20, align: 'center' });
+      .text(s.label, cx + 10, flowY + 50, { width: cardW - 20, align: 'center' });
+
     // Value
-    doc.fontSize(28).fillColor(s.color).font('Helvetica-Bold')
-      .text(s.value, cx + 10, flowY + 88, { width: cardW - 20, align: 'center' });
+    doc.fontSize(30).fillColor(s.color).font('Helvetica-Bold')
+      .text(s.value, cx + 10, flowY + 72, { width: cardW - 20, align: 'center' });
+
     // Sub
     doc.fontSize(9).fillColor(WHITE60).font('Helvetica')
       .text(s.sub, cx + 10, flowY + 130, { width: cardW - 20, align: 'center' });
@@ -278,7 +259,6 @@ function slide3(doc) {
       doc.save();
       doc.strokeColor(WHITE60).lineWidth(1.5)
         .moveTo(ax, ay).lineTo(ax + gap - 16, ay).stroke();
-      // arrowhead
       doc.fillColor(WHITE60)
         .moveTo(ax + gap - 16, ay - 5)
         .lineTo(ax + gap - 8, ay)
@@ -293,9 +273,9 @@ function slide3(doc) {
   card(doc, startX, bY, totalW, 100, { fill: WHITE08, stroke: WHITE15 });
 
   const details = [
-    { label: 'Premium paid', value: '$0.07', note: '7% of insured amount' },
-    { label: 'Amount insured', value: '$1.00', note: 'USDC on X Layer' },
-    { label: 'Refund received', value: '$0.93', note: 'Net of premium · ~5 sec' },
+    { label: 'Premium paid',    value: '$0.07', note: '7% of insured amount' },
+    { label: 'Amount insured',  value: '$1.00', note: 'USDC on X Layer' },
+    { label: 'Refund received', value: '$0.93', note: 'Net of premium  |  ~5 sec' },
   ];
   const detW = totalW / 3;
   details.forEach((d, i) => {
@@ -306,14 +286,11 @@ function slide3(doc) {
     doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text(d.note, dx, bY + 68, { width: detW, align: 'center' });
   });
 
-  // Tagline
   doc.fontSize(11).fillColor(WHITE60).font('Helvetica')
-    .text('"Agent pays $1.00. API fails. Zeus automatically refunds $0.93 to the agent\'s wallet."',
+    .text('"Agent pays $1.00. API fails. Zeus automatically refunds $0.93 to the agent wallet."',
       36, H - 52, { width: W - 72, align: 'center' });
 
-  zeusShield(doc, W - 60, H - 56, 38);
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text('Zeus Insurance Protocol  ·  OKX Fund Pitch', 36, H - 28, { width: W - 120 });
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text('3 / 6', W - 60, H - 28, { width: 40, align: 'right' });
+  footerLine(doc, 3);
 }
 
 // ── SLIDE 4 — Products ────────────────────────────────────────────────────────
@@ -335,68 +312,77 @@ function slide4(doc) {
 
   // ── LEFT: Escrow ──
   card(doc, lX, topY, colW, cH, { fill: WHITE15, stroke: WHITE08 });
-  badge(doc, lX + 16, topY + 16, 'MODEL A — ESCROW');
+  badge(doc, lX + 16, topY + 16, 'MODEL A  —  ESCROW');
   doc.fontSize(16).fillColor(WHITE).font('Helvetica-Bold').text('Protected Transaction', lX + 16, topY + 48, { width: colW - 32 });
   goldBar(doc, lX + 16, topY + 74, 80, 2);
 
   const escrowItems = [
-    ['💰', 'Funds locked until delivery is confirmed.'],
-    ['🔒', '0.7% + $0.02 flat fee per transaction.'],
-    ['🛡️', 'Full deposit refund on timeout.'],
-    ['⚡', 'Automated release via on-chain oracle.'],
-    ['🔍', 'Full audit trail on X Layer Mainnet.'],
+    'Funds locked until delivery is confirmed.',
+    '0.7% + $0.02 flat fee per transaction.',
+    'Full deposit refund on timeout.',
+    'Automated release via on-chain oracle.',
+    'Full audit trail on X Layer Mainnet.',
   ];
-  escrowItems.forEach(([icon, text], i) => {
-    doc.fontSize(13).text(icon, lX + 16, topY + 90 + i * 46);
-    doc.fontSize(10).fillColor(WHITE60).font('Helvetica').text(text, lX + 44, topY + 92 + i * 46, { width: colW - 60 });
+  escrowItems.forEach((text, i) => {
+    bulletLine(doc, lX + 20, topY + 90 + i * 44, text, WHITE60, colW - 44);
   });
 
-  // Commission badge
   doc.roundedRect(lX + 16, topY + cH - 62, colW - 32, 44, 8).fill(GOLD + '1A').stroke(GOLD + '40');
-  doc.fontSize(11).fillColor(GOLD).font('Helvetica-Bold')
-    .text('Commission: 0.7% + $0.02 per tx  ·  Non-custodial', lX + 24, topY + cH - 46, { width: colW - 48 });
+  doc.fontSize(10).fillColor(GOLD).font('Helvetica-Bold')
+    .text('Commission: 0.7% + $0.02 per tx   |   Non-custodial', lX + 24, topY + cH - 46, { width: colW - 48 });
 
   // ── RIGHT: Insurance ──
   card(doc, rX, topY, colW, cH, { fill: WHITE15, stroke: WHITE08 });
-  badge(doc, rX + 16, topY + 16, 'MODEL B — INSURANCE', GOLD);
+  badge(doc, rX + 16, topY + 16, 'MODEL B  —  INSURANCE', GOLD);
   doc.fontSize(16).fillColor(WHITE).font('Helvetica-Bold').text('Smart Coverage Suite', rX + 16, topY + 48, { width: colW - 32 });
   goldBar(doc, rX + 16, topY + 74, 80, 2);
 
-  const insGroups = [
-    { title: 'All-inclusive Insurance', color: GOLD, items: [
-      'Covers API failures, network errors, wallet limits, gas failures, MCP errors.',
-      'Dynamic premium based on Risk Score.',
-      'Instant payouts from reserve.',
-    ]},
-    { title: 'Arbitration Risk', color: '#60A5FA', items: [
-      'Protection against incorrect OKX AI arbitration decisions.',
-      'Rate: 8% of dispute amount.',
-    ]},
-    { title: 'Slashing Protection', color: GREEN, items: [
-      'Compensation for validator slashing.',
-      'Protection for stakers and node operators.',
-    ]},
+  // ── All-inclusive Insurance
+  let iy = topY + 90;
+  doc.fontSize(11).fillColor(GOLD).font('Helvetica-Bold').text('All-inclusive Insurance', rX + 16, iy, { width: colW - 32 });
+  iy += 18;
+  const aiItems = [
+    'Covers API failures, network errors, wallet limits,',
+    'gas shortages, MCP errors.',
+    'Dynamic premium based on Risk Score.',
+    'Instant payouts from reserve.',
   ];
+  aiItems.forEach(line => {
+    doc.fontSize(9).fillColor(WHITE60).font('Helvetica').text('  - ' + line, rX + 20, iy, { width: colW - 36 });
+    iy += 14;
+  });
+  iy += 6;
 
-  let iy = topY + 88;
-  insGroups.forEach(({ title, color, items }) => {
-    doc.fontSize(11).fillColor(color).font('Helvetica-Bold').text('▸  ' + title, rX + 16, iy, { width: colW - 32 });
-    iy += 18;
-    items.forEach(item => {
-      doc.fontSize(9).fillColor(WHITE60).font('Helvetica').text('  · ' + item, rX + 20, iy, { width: colW - 36 });
-      iy += 13 + (item.length > 60 ? 11 : 0);
-    });
-    iy += 8;
+  // ── Arbitration Risk
+  doc.fontSize(11).fillColor('#60A5FA').font('Helvetica-Bold').text('Arbitration Risk', rX + 16, iy, { width: colW - 32 });
+  iy += 18;
+  const arItems = [
+    'Rate: 8% of dispute amount — protects against',
+    'incorrect OKX AI Evaluator rulings.',
+  ];
+  arItems.forEach(line => {
+    doc.fontSize(9).fillColor(WHITE60).font('Helvetica').text('  - ' + line, rX + 20, iy, { width: colW - 36 });
+    iy += 14;
+  });
+  iy += 6;
+
+  // ── Slashing Protection
+  doc.fontSize(11).fillColor(GREEN).font('Helvetica-Bold').text('Slashing Protection', rX + 16, iy, { width: colW - 32 });
+  iy += 18;
+  const spItems = [
+    'Compensation for validator slashing.',
+    'Protection for stakers and node operators.',
+  ];
+  spItems.forEach(line => {
+    doc.fontSize(9).fillColor(WHITE60).font('Helvetica').text('  - ' + line, rX + 20, iy, { width: colW - 36 });
+    iy += 14;
   });
 
-  // Premium note
   doc.roundedRect(rX + 16, topY + cH - 62, colW - 32, 44, 8).fill(GREEN + '1A').stroke(GREEN + '40');
-  doc.fontSize(11).fillColor(GREEN).font('Helvetica-Bold')
-    .text('Premium from 7%  ·  Dynamic Risk Score  ·  Auto-payout', rX + 24, topY + cH - 46, { width: colW - 48 });
+  doc.fontSize(10).fillColor(GREEN).font('Helvetica-Bold')
+    .text('Premium from 7%   |   Dynamic Risk Score   |   Auto-payout', rX + 24, topY + cH - 46, { width: colW - 48 });
 
-  zeusShield(doc, W - 60, H - 56, 38);
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text('Zeus Insurance Protocol  ·  OKX Fund Pitch', 36, H - 28, { width: W - 120 });
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text('4 / 6', W - 60, H - 28, { width: 40, align: 'right' });
+  footerLine(doc, 4);
 }
 
 // ── SLIDE 5 — Tech & Integration ─────────────────────────────────────────────
@@ -410,12 +396,11 @@ function slide5(doc) {
   doc.fontSize(28).fillColor(GOLD).font('Helvetica-Bold').text('Agent Economy.', 36, 96, { width: 480 });
   goldBar(doc, 36, 133, 280, 2);
 
-  // 4 big tech cards
   const cards = [
-    { icon: '🔗', color: '#60A5FA', title: 'X Layer Mainnet', sub: 'Chain 196 (OKX L2)', detail: 'Our primary deployment network.\nFast, cheap, EVM-compatible.\nLive and audited.' },
-    { icon: '🤖', color: GOLD, title: 'OKX AI Agent Marketplace', sub: 'ASP #7202', detail: 'Listed agent service provider.\nAgents discover & pay Zeus\nvia native OKX AI flows.' },
-    { icon: '⚡', color: GREEN, title: 'x402 Protocol', sub: 'HTTP-native payments', detail: 'Agents pay per call with USDC.\nNo accounts, no approvals.\nFully autonomous M2M.' },
-    { icon: '🔌', color: '#C084FC', title: 'MCP Server', sub: '7 AI tools available', detail: 'Plug Zeus into any agent:\nget-quote, buy-policy,\nclaim-policy, escrow + more.' },
+    { color: '#60A5FA', title: 'X Layer Mainnet',           sub: 'Chain 196 (OKX L2)',       detail: 'Our primary deployment network.\nFast, cheap, EVM-compatible.\nLive and audited.' },
+    { color: GOLD,     title: 'OKX AI Agent Marketplace',   sub: 'ASP #7202',                detail: 'Listed agent service provider.\nAgents discover & pay Zeus\nvia native OKX AI flows.' },
+    { color: GREEN,    title: 'x402 Protocol',              sub: 'HTTP-native payments',      detail: 'Agents pay per call with USDC.\nNo accounts, no approvals.\nFully autonomous M2M.' },
+    { color: '#C084FC', title: 'MCP Server',                sub: '7 AI tools available',     detail: 'Plug Zeus into any agent:\nget-quote, buy-policy,\nclaim-policy, escrow + more.' },
   ];
 
   const cW = (W - 72 - 3 * 16) / 4;
@@ -425,13 +410,16 @@ function slide5(doc) {
   cards.forEach((c, i) => {
     const cx = 36 + i * (cW + 16);
     card(doc, cx, cY, cW, cH, { fill: WHITE15, stroke: c.color + '40' });
-    // color top accent
     doc.rect(cx, cY, cW, 4).fill(c.color);
-    doc.fontSize(30).text(c.icon, cx, cY + 18, { width: cW, align: 'center' });
-    doc.fontSize(12).fillColor(WHITE).font('Helvetica-Bold').text(c.title, cx + 10, cY + 62, { width: cW - 20, align: 'center' });
-    doc.fontSize(9).fillColor(c.color).font('Helvetica-Bold').text(c.sub, cx + 10, cY + 80, { width: cW - 20, align: 'center' });
-    goldBar(doc, cx + cW / 2 - 30, cY + 97, 60, 1);
-    doc.fontSize(9).fillColor(WHITE60).font('Helvetica').text(c.detail, cx + 12, cY + 108, { width: cW - 24, align: 'center', lineGap: 2 });
+
+    // Title block (no emoji)
+    doc.fontSize(12).fillColor(WHITE).font('Helvetica-Bold')
+      .text(c.title, cx + 10, cY + 32, { width: cW - 20, align: 'center' });
+    doc.fontSize(9).fillColor(c.color).font('Helvetica-Bold')
+      .text(c.sub, cx + 10, cY + 58, { width: cW - 20, align: 'center' });
+    goldBar(doc, cx + cW / 2 - 30, cY + 78, 60, 1);
+    doc.fontSize(9).fillColor(WHITE60).font('Helvetica')
+      .text(c.detail, cx + 12, cY + 90, { width: cW - 24, align: 'center', lineGap: 2 });
   });
 
   // Stack row
@@ -446,13 +434,14 @@ function slide5(doc) {
     doc.fontSize(9).fillColor(WHITE).font('Helvetica-Bold').text(s, sx + 8, stackY + 43);
   });
 
-  // Bottom tagline
-  doc.fontSize(13).fillColor(WHITE).font('Helvetica-Bold')
-    .text('"Live on X Layer Mainnet. Ready for agents on OKX AI."', 36, H - 56, { width: W - 72, align: 'center' });
+  // Bottom link
+  doc.fontSize(10).fillColor(WHITE60).font('Helvetica')
+    .text('OKLink explorer:  www.oklink.com/xlayer', 36, H - 56, { width: W - 72, align: 'center' });
 
-  zeusShield(doc, W - 60, H - 56, 38);
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text('Zeus Insurance Protocol  ·  OKX Fund Pitch', 36, H - 28, { width: W - 120 });
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text('5 / 6', W - 60, H - 28, { width: 40, align: 'right' });
+  doc.fontSize(13).fillColor(WHITE).font('Helvetica-Bold')
+    .text('"Live on X Layer Mainnet. Ready for agents on OKX AI."', 36, H - 40, { width: W - 72, align: 'center' });
+
+  footerLine(doc, 5);
 }
 
 // ── SLIDE 6 — Team & CTA ──────────────────────────────────────────────────────
@@ -461,7 +450,6 @@ function slide6(doc) {
   grid(doc);
   doc.rect(0, 0, 5, H).fill(GOLD);
 
-  // Glow
   doc.save().circle(W * 0.72, H / 2, 200).fill(GOLD + '08').restore();
 
   badge(doc, 36, 30, 'TEAM & NEXT STEPS');
@@ -469,8 +457,9 @@ function slide6(doc) {
   doc.fontSize(28).fillColor(GOLD).font('Helvetica-Bold').text('Future of Trust.', 36, 96, { width: 560 });
   goldBar(doc, 36, 133, 280, 2);
 
-  // Team card
   const tY = 152;
+
+  // Team card
   card(doc, 36, tY, 340, 170, { fill: WHITE15, stroke: WHITE08 });
   doc.fontSize(11).fillColor(WHITE60).font('Helvetica-Bold').text('FOUNDER', 56, tY + 18);
   doc.fontSize(17).fillColor(WHITE).font('Helvetica-Bold').text('Igor Ivanov', 56, tY + 36);
@@ -479,7 +468,6 @@ function slide6(doc) {
   doc.fontSize(10).fillColor(WHITE60).font('Helvetica')
     .text('Deep expertise in Solidity, TypeScript,\nand DeFi protocol design.\nDeployed contracts on Ethereum, Base,\nand X Layer Mainnets.', 56, tY + 90, { width: 300, lineGap: 2 });
 
-  // Expertise chips
   ['Solidity', 'Smart Contracts', 'DeFi', 'TypeScript', 'Web3'].forEach((s, i) => {
     const chipX = 56 + i * 58;
     const cW2 = doc.widthOfString(s, { fontSize: 8 }) + 14;
@@ -491,13 +479,13 @@ function slide6(doc) {
   card(doc, 36, tY + 186, 340, 110, { fill: WHITE15, stroke: WHITE08 });
   doc.fontSize(11).fillColor(WHITE60).font('Helvetica-Bold').text('TRACTION', 56, tY + 204);
   const tractions = [
-    ['✅', 'Deployed on X Layer Mainnet (Chain 196)'],
-    ['✅', 'Listed on OKX AI Agent Marketplace (ASP #7202)'],
-    ['✅', 'MCP Server with 7 AI agent tools'],
-    ['✅', 'x402 Protocol integration live'],
+    'Deployed on X Layer Mainnet (Chain 196)',
+    'Listed on OKX AI Agent Marketplace (ASP #7202)',
+    'MCP Server with 7 AI agent tools',
+    'x402 Protocol integration live',
   ];
-  tractions.forEach(([icon, text], i) => {
-    doc.fontSize(10).text(icon, 56, tY + 222 + i * 19);
+  tractions.forEach((text, i) => {
+    doc.fontSize(10).fillColor(GREEN).font('Helvetica-Bold').text('[+]', 56, tY + 222 + i * 19);
     doc.fontSize(10).fillColor(WHITE60).font('Helvetica').text(text, 80, tY + 222 + i * 19, { width: 280 });
   });
 
@@ -517,22 +505,18 @@ function slide6(doc) {
   doc.fontSize(11).fillColor(WHITE).font('Helvetica')
     .text('Decentralized insurance and escrow\nfor the agentic economy.\n\nLive on X Layer Mainnet.', ctaX, ctaY + 212, { width: ctaW, align: 'center', lineGap: 3 });
 
-  // CTA button
   const btnW = 220;
   const btnX = ctaX + ctaW / 2 - btnW / 2;
   const btnY = ctaY + 290;
   doc.roundedRect(btnX, btnY, btnW, 42, 21).fill(GOLD);
-  doc.fontSize(13).fillColor('#080c14').font('Helvetica-Bold')
-    .text('↗  Explore Zeus on OKX AI', btnX, btnY + 14, { width: btnW, align: 'center', lineBreak: false });
+  doc.fontSize(12).fillColor('#080c14').font('Helvetica-Bold')
+    .text('Explore Zeus on OKX AI', btnX, btnY + 15, { width: btnW, align: 'center', lineBreak: false });
 
-  // Contact
   doc.fontSize(9).fillColor(WHITE60).font('Helvetica')
-    .text('t.me/IvanovVII  ·  zeusinsurance@mail.ru  ·  github.com/igor-vii/Zeus-Insurance-Escrow',
+    .text('t.me/IvanovVII   |   zeusinsurance@mail.ru   |   github.com/igor-vii/Zeus-Insurance-Escrow',
       ctaX, btnY + 62, { width: ctaW, align: 'center' });
 
-  zeusShield(doc, W - 60, H - 56, 38);
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text('Zeus Insurance Protocol  ·  OKX Fund Pitch', 36, H - 28, { width: W - 120 });
-  doc.fontSize(8).fillColor(WHITE60).font('Helvetica').text('6 / 6', W - 60, H - 28, { width: 40, align: 'right' });
+  footerLine(doc, 6);
 }
 
 // ── Build the PDF ─────────────────────────────────────────────────────────────
@@ -541,9 +525,9 @@ const doc = new PDFDocument({
   layout: 'landscape',
   margin: 0,
   info: {
-    Title: 'Zeus Insurance Protocol — OKX Fund Pitch Deck',
-    Author: 'Igor Ivanov',
-    Subject: 'Decentralized Insurance for AI Agents',
+    Title:    'Zeus Insurance Protocol — OKX Fund Pitch Deck',
+    Author:   'Igor Ivanov',
+    Subject:  'Decentralized Insurance for AI Agents',
     Keywords: 'Zeus, Insurance, X Layer, OKX, AI Agents, DeFi',
   },
 });
@@ -562,6 +546,6 @@ doc.end();
 
 stream.on('finish', () => {
   const size = (fs.statSync(OUT).size / 1024).toFixed(1);
-  console.log(`✅ PDF saved: ${OUT} (${size} KB)`);
+  console.log(`PDF saved: ${OUT} (${size} KB)`);
 });
-stream.on('error', (e) => { console.error('❌', e.message); process.exit(1); });
+stream.on('error', (e) => { console.error('ERROR:', e.message); process.exit(1); });
