@@ -81,7 +81,7 @@ async function main() {
   // ── 1. Deploy ZeusReserveV2 ───────────────────────────────────────────────
   console.log("📦 [1/3] Deploying ZeusReserveV2...");
   const ZeusReserveV2 = await ethers.getContractFactory("ZeusReserveV2");
-  const reserve = await ZeusReserveV2.deploy(usdcAddress);
+  const reserve = await ZeusReserveV2.deploy(usdcAddress, deployer.address);
   await reserve.waitForDeployment();
   const reserveAddress = await reserve.getAddress();
   console.log(`  ✅ ZeusReserveV2:    ${reserveAddress}`);
@@ -126,7 +126,7 @@ async function main() {
   console.log("\n🔍 Verifying contracts...");
   // Small delay to allow block explorer indexing
   await new Promise((r) => setTimeout(r, 10000));
-  await verify(reserveAddress, [usdcAddress]);
+  await verify(reserveAddress, [usdcAddress, deployer.address]);
   await verify(insuranceAddress, [usdcAddress, reserveAddress]);
   await verify(escrowAddress, [tokenAddress, treasuryAddress]);
 

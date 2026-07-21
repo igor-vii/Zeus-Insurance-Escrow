@@ -39,12 +39,13 @@ Agent                   ZeusInsuranceV2          ZeusReserveV2
 
 ## 🔗 Live Contracts
 
-### X Layer (OKX L2) — deploy pending
+### X Layer (OKX L2) — mainnet ✅
 | Contract | Address | Explorer |
 |---|---|---|
-| **ZeusReserveV2** | _deploy in progress_ | [OKLink ↗](https://www.oklink.com/xlayer) |
-| **ZeusInsuranceV2** | _deploy in progress_ | [OKLink ↗](https://www.oklink.com/xlayer) |
-| **ZeusEscrowBOT** | _deploy in progress_ | [OKLink ↗](https://www.oklink.com/xlayer) |
+| **ZeusReserveV2** | `0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c` | [OKLink ↗](https://www.oklink.com/xlayer/address/0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c) |
+| **ZeusInsuranceV2** | `0x8D10C2c6C92b613C1938fe532f0e391044e76188` | [OKLink ↗](https://www.oklink.com/xlayer/address/0x8D10C2c6C92b613C1938fe532f0e391044e76188) |
+| **ZeusEscrowBOT** | `0x0d4AD4C6b60F445d0e478E0AF48075340AC51Cf5` | [OKLink ↗](https://www.oklink.com/xlayer/address/0x0d4AD4C6b60F445d0e478E0AF48075340AC51Cf5) |
+| **USDC (X Layer)** | `0x74b7f16337b8972027f6196a17a631ac6de26d22` | — |
 
 ### Base Sepolia (testnet)
 | Contract | Address | Explorer |
@@ -362,6 +363,7 @@ curl -X POST https://api.zeus-insurance.com/mcp \
 | x402 Integration | ✅ Done | AI agents pay per API call in USDC |
 | OKX AI / MCP | ✅ Done | MCP server with 7 tools, OKX AI compatible |
 | X Layer Support | ✅ Done | Hardhat config + `deploy-all.ts` for X Layer L2 |
+| X Layer Mainnet | ✅ Done | Reserve + Insurance + Escrow live on X Layer |
 | All-inclusive Deploy | ✅ Done | One-script deploy: Reserve + Insurance + Escrow |
 | ERC-8004 | 🔜 Next | Full on-chain agent payment interface compliance |
 | Base Mainnet | 🔜 Next | Deploy to Base Mainnet |
