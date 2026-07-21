@@ -367,7 +367,7 @@ curl -X POST https://api.zeus-insurance.com/mcp \
 | All-inclusive Deploy | ✅ Done | One-script deploy: Reserve + Insurance + Escrow |
 | ERC-8004 | 🔜 Next | Full on-chain agent payment interface compliance |
 | Base Mainnet | 🔜 Next | Deploy to Base Mainnet |
-| X Layer Mainnet | 🔜 Next | Live deployment on X Layer with OKB settlement |
+| X Layer Verification | 🔜 Next | Verify contracts on OKLink (needs OKLINK_API_KEY) |
 | Audit | 🔜 Next | Security audit of core contracts |
 
 ---
