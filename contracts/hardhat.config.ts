@@ -9,8 +9,13 @@ const BASE_SEPOLIA_RPC_URL =
   process.env.BASE_SEPOLIA_RPC_URL ?? "https://sepolia.base.org";
 const BASE_MAINNET_RPC_URL =
   process.env.BASE_MAINNET_RPC_URL ?? "https://mainnet.base.org";
+const XLAYER_MAINNET_RPC_URL =
+  process.env.XLAYER_MAINNET_RPC_URL ?? "https://rpc.xlayer.tech";
+const XLAYER_TESTNET_RPC_URL =
+  process.env.XLAYER_TESTNET_RPC_URL ?? "https://testrpc.xlayer.tech";
 const BASESCAN_API_KEY =
   process.env.ETHERSCAN_API_KEY ?? process.env.BASESCAN_API_KEY ?? "";
+const OKLINK_API_KEY = process.env.OKLINK_API_KEY ?? "";
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -44,10 +49,26 @@ const config: HardhatUserConfig = {
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
       chainId: 8453,
     },
+    xlayer: {
+      url: XLAYER_MAINNET_RPC_URL,
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+      chainId: 196,
+    },
+    "xlayer-testnet": {
+      url: XLAYER_TESTNET_RPC_URL,
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+      chainId: 195,
+    },
   },
   etherscan: {
     // Etherscan V2 unified API — requires an etherscan.io key (not basescan.org)
-    apiKey: BASESCAN_API_KEY,
+    // For X Layer contracts, set OKLINK_API_KEY from https://www.oklink.com/account/my-api
+    apiKey: {
+      "base-sepolia": BASESCAN_API_KEY,
+      "base-mainnet": BASESCAN_API_KEY,
+      xlayer: OKLINK_API_KEY,
+      "xlayer-testnet": OKLINK_API_KEY,
+    },
     customChains: [
       {
         network: "base-sepolia",
@@ -63,6 +84,22 @@ const config: HardhatUserConfig = {
         urls: {
           apiURL: "https://api.etherscan.io/v2/api?chainid=8453",
           browserURL: "https://basescan.org",
+        },
+      },
+      {
+        network: "xlayer",
+        chainId: 196,
+        urls: {
+          apiURL: "https://www.oklink.com/api/v5/explorer/contract/verify-source-code-plugin/XLAYER",
+          browserURL: "https://www.oklink.com/xlayer",
+        },
+      },
+      {
+        network: "xlayer-testnet",
+        chainId: 195,
+        urls: {
+          apiURL: "https://www.oklink.com/api/v5/explorer/contract/verify-source-code-plugin/XLAYER_TEST",
+          browserURL: "https://www.oklink.com/xlayer-test",
         },
       },
     ],

@@ -37,12 +37,21 @@ Agent                   ZeusInsuranceV2          ZeusReserveV2
 
 ---
 
-## 🔗 Live Contracts — Base Sepolia
+## 🔗 Live Contracts
 
+### X Layer (OKX L2) — deploy pending
+| Contract | Address | Explorer |
+|---|---|---|
+| **ZeusReserveV2** | _deploy in progress_ | [OKLink ↗](https://www.oklink.com/xlayer) |
+| **ZeusInsuranceV2** | _deploy in progress_ | [OKLink ↗](https://www.oklink.com/xlayer) |
+| **ZeusEscrowBOT** | _deploy in progress_ | [OKLink ↗](https://www.oklink.com/xlayer) |
+
+### Base Sepolia (testnet)
 | Contract | Address | Explorer |
 |---|---|---|
 | **ZeusInsuranceV2** | `0x1d9D90d2652296A2c89E3802d45B1F2132b30076` | [BaseScan ↗](https://sepolia.basescan.org/address/0x1d9D90d2652296A2c89E3802d45B1F2132b30076) |
 | **ZeusReserveV2** | `0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47` | [BaseScan ↗](https://sepolia.basescan.org/address/0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47) |
+| **ZeusEscrowBOT** | `0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76` | [BaseScan ↗](https://sepolia.basescan.org/address/0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76) |
 | **USDC (Base Sepolia)** | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | — |
 
 ---
@@ -51,13 +60,14 @@ Agent                   ZeusInsuranceV2          ZeusReserveV2
 
 | Layer | Technology |
 |---|---|
-| Smart Contracts | Solidity 0.8.24, OpenZeppelin v5, Hardhat |
-| Blockchain | Base Sepolia (L2 on Ethereum) |
-| Token | USDC (6 decimals) |
+| Smart Contracts | Solidity 0.8.27, OpenZeppelin v5, Hardhat |
+| Blockchain | **X Layer** (OKX L2), Base Sepolia / Base Mainnet |
+| Token | USDC / OKB (6 decimals) |
 | Frontend | React 18, wagmi v3, viem, Tailwind CSS |
 | SDK | `@zeus/sdk` — ethers v6, ESM (NodeNext) |
 | API Server | Express v5, TypeScript, viem, esbuild |
 | AI Agent Payments | **x402** protocol (`x402-express`) |
+| AI Integration | **OKX AI** — MCP tools, agent-native payment flow |
 | Agent Standard | **ERC-8004** compatible |
 | Runtime | Node.js 20, pnpm workspaces |
 
@@ -68,8 +78,13 @@ Agent                   ZeusInsuranceV2          ZeusReserveV2
 ```
 Zeus-Insurance-Escrow/
 ├── contracts/          # Hardhat — Solidity contracts + tests
+│   └── scripts/
+│       ├── deploy-all.ts           # Deploy all contracts (any network)
+│       ├── deploy-insurance-v2.ts  # Deploy ZeusInsuranceV2 only
+│       └── deploy-escrow-bot.ts    # Deploy ZeusEscrowBOT only
 ├── sdk/                # @zeus/sdk — TypeScript SDK (ESM)
 ├── api-server/         # Express REST API (port 8080)
+├── watcher/            # Oracle watcher node
 └── frontend/           # React app (port 5000)
 ```
 
@@ -255,7 +270,12 @@ cd sdk && pnpm build
 | Variable | Where | Description |
 |---|---|---|
 | `PRIVATE_KEY` | `contracts/.env` | Deployer wallet private key |
-| `BASESCAN_API_KEY` | `contracts/.env` | For contract verification |
+| `USDC_ADDRESS` | `contracts/.env` | USDC (or stablecoin) address on target network |
+| `TOKEN_ADDRESS` | `contracts/.env` | ERC-20 token for ZeusEscrowBOT |
+| `TREASURY_ADDRESS` | `contracts/.env` | Fee recipient for escrow (defaults to deployer) |
+| `ETHERSCAN_API_KEY` | `contracts/.env` | For Base contract verification |
+| `OKLINK_API_KEY` | `contracts/.env` | For X Layer contract verification |
+| `XLAYER_MAINNET_RPC_URL` | `contracts/.env` | X Layer RPC (default: `https://rpc.xlayer.tech`) |
 | `SESSION_SECRET` | API server secret | Cookie signing |
 | `ZEUS_TREASURY` | API server env var | Wallet receiving x402 fees |
 
@@ -263,10 +283,70 @@ cd sdk && pnpm build
 
 ```bash
 cd contracts
-pnpm install
 npx hardhat compile
-npx hardhat test        # 30+ tests
-npx hardhat run scripts/deploy-v2.js --network baseSepolia
+npx hardhat test        # 96 tests, all passing
+```
+
+### Deploy to X Layer
+
+```bash
+cd contracts
+PRIVATE_KEY=0x... \
+USDC_ADDRESS=0x... \
+TOKEN_ADDRESS=0x... \
+npx hardhat run scripts/deploy-all.ts --network xlayer
+```
+
+### Deploy to Base Sepolia
+
+```bash
+PRIVATE_KEY=0x... \
+USDC_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e \
+npx hardhat run scripts/deploy-all.ts --network base-sepolia
+```
+
+---
+
+## 🔐 Escrow Types
+
+Zeus supports multiple escrow modes through **ZeusEscrowBOT**:
+
+| Type | Description |
+|---|---|
+| **Standard escrow** | Initiator locks tokens; executor claims on `confirmExecution()` |
+| **Timeout refund** | Initiator reclaims funds after deadline if executor doesn't confirm |
+| **All-inclusive** | Deploy with `deploy-all.ts` — Reserve + Insurance + Escrow in one transaction sequence |
+| **AI agent escrow** | Agent acts as initiator or executor; proof bytes carry signed off-chain attestations |
+
+Proof bytes in `confirmExecution(agreementId, proof)` are opaque — store any signed attestation, job receipt, or MCP tool result hash as evidence of work completion.
+
+---
+
+## 🤖 OKX AI Integration
+
+Zeus is natively compatible with **OKX AI** agents via MCP and the x402 payment protocol:
+
+- **MCP tools** (`insurance_quote`, `insurance_prepare_buy`, `escrow_prepare_deposit`, …) let OKX AI agents purchase coverage and create escrow agreements in a single tool call.
+- **x402 payment header** allows agents to pay API fees autonomously in USDC — no wallet pop-ups, no human approval.
+- **X Layer deployment** brings ultra-low fees (< $0.001 per transaction) and OKB-native settlement, ideal for high-frequency AI agent workflows.
+
+```bash
+# OKX AI agent buys insurance via MCP in one call
+curl -X POST https://api.zeus-insurance.com/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{
+    "jsonrpc": "2.0", "method": "tools/call", "id": "1",
+    "params": {
+      "name": "insurance_prepare_buy",
+      "arguments": {
+        "seller": "0xOKX_API_SELLER",
+        "amount": "5000000",
+        "timeoutSeconds": 86400,
+        "maxRetries": 3
+      }
+    }
+  }'
 ```
 
 ---
@@ -280,8 +360,12 @@ npx hardhat run scripts/deploy-v2.js --network baseSepolia
 | SDK | ✅ Done | `@zeus/sdk` — ESM, ethers v6, insurance + escrow |
 | REST API | ✅ Done | Express server with caching + event listener |
 | x402 Integration | ✅ Done | AI agents pay per API call in USDC |
+| OKX AI / MCP | ✅ Done | MCP server with 7 tools, OKX AI compatible |
+| X Layer Support | ✅ Done | Hardhat config + `deploy-all.ts` for X Layer L2 |
+| All-inclusive Deploy | ✅ Done | One-script deploy: Reserve + Insurance + Escrow |
 | ERC-8004 | 🔜 Next | Full on-chain agent payment interface compliance |
-| Mainnet | 🔜 Next | Deploy to Base Mainnet |
+| Base Mainnet | 🔜 Next | Deploy to Base Mainnet |
+| X Layer Mainnet | 🔜 Next | Live deployment on X Layer with OKB settlement |
 | Audit | 🔜 Next | Security audit of core contracts |
 
 ---
