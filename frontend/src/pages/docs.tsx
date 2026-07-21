@@ -81,7 +81,7 @@ export default function Docs() {
           {[
             { name: 'ZeusInsuranceV2', addr: '0xE0b89E0DEa7Fc7AEa7CEcC62a0A14d52de42Ce3b', label: 'Main insurance contract' },
             { name: 'ZeusReserveV2', addr: '0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47', label: 'Reserve fund contract' },
-            { name: 'USDC (Base Sepolia)', addr: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', label: 'Test USDC token' },
+            { name: 'USDC (X Layer Mainnet)', addr: '0x74b7F16337b8972027F6196A17a631aC6dE26d22', label: 'USDC token on X Layer' },
           ].map(({ name, addr, label }) => (
             <div key={name} className="flex flex-col sm:flex-row sm:items-center gap-2 p-4 rounded-lg border border-border bg-card/50">
               <div className="sm:w-52 flex-shrink-0">

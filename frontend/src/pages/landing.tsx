@@ -1,32 +1,178 @@
 import { Link } from 'wouter';
-import { ArrowRight, Shield, Zap, Eye, Cpu, ChevronRight } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { Button } from '@/components/ui/button';
-import { useI18n } from '@/lib/i18n';
+import { ArrowRight, ArrowUpRight, ChevronRight, Shield, Zap, Eye, Cpu } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
 import { ZeusLogoIcon } from '@/components/zeus-logo';
 
 const fadeUp = (delay = 0) => ({
-  initial: { opacity: 0, y: 24 },
+  initial: { opacity: 0, y: 20 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1], delay },
+  transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1], delay },
 });
 
-const fadeIn = (delay = 0) => ({
-  initial: { opacity: 0 },
-  animate: { opacity: 1 },
-  transition: { duration: 0.6, delay },
-});
+/* ── Animated flow example ──────────────────────────────────────────────── */
+const STEPS = [
+  { id: 0, icon: '💳', label: 'Agent pays', value: '$1.00', sub: 'via x402 protocol', color: '#F5A623' },
+  { id: 1, icon: '⚡', label: 'API fails', value: 'Detected', sub: 'on-chain oracle', color: '#ef4444' },
+  { id: 2, icon: '🛡️', label: 'Zeus refunds', value: '$0.93', sub: 'in ~5 seconds', color: '#22c55e' },
+];
 
-export default function Landing() {
-  const { t } = useI18n();
+function FlowDemo() {
+  const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setActive((a) => (a + 1) % 3), 1800);
+    return () => clearInterval(t);
+  }, []);
 
   return (
+    <div className="relative flex items-center gap-0 justify-center">
+      {STEPS.map((step, i) => (
+        <div key={step.id} className="flex items-center">
+          {/* Card */}
+          <motion.div
+            animate={{
+              borderColor: active === i ? step.color + '80' : 'rgba(255,255,255,0.08)',
+              backgroundColor: active === i ? step.color + '0d' : 'rgba(255,255,255,0.03)',
+              scale: active === i ? 1.04 : 1,
+            }}
+            transition={{ duration: 0.35 }}
+            className="relative w-44 rounded-xl border px-5 py-4 text-center"
+            style={{ borderColor: 'rgba(255,255,255,0.08)' }}
+          >
+            {active === i && (
+              <motion.div
+                layoutId="glow"
+                className="absolute inset-0 rounded-xl blur-xl opacity-20"
+                style={{ background: step.color }}
+                transition={{ duration: 0.35 }}
+              />
+            )}
+            <div className="relative">
+              <div className="text-2xl mb-1">{step.icon}</div>
+              <div className="text-xs text-white/40 uppercase tracking-wider font-mono mb-1">{step.label}</div>
+              <div
+                className="text-xl font-bold font-mono"
+                style={{ color: active === i ? step.color : '#fff' }}
+              >
+                {step.value}
+              </div>
+              <div className="text-xs text-white/30 mt-0.5">{step.sub}</div>
+            </div>
+          </motion.div>
+
+          {/* Arrow connector */}
+          {i < 2 && (
+            <div className="flex items-center px-2">
+              <motion.div
+                animate={{ opacity: active > i ? 1 : 0.2, x: active > i ? 0 : -4 }}
+                transition={{ duration: 0.3 }}
+              >
+                <ChevronRight className="w-5 h-5 text-white/30" />
+              </motion.div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Reserve Status Card ────────────────────────────────────────────────── */
+function ReserveCard() {
+  const [reserve, setReserve] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch('/api/reserve/status')
+      .then((r) => r.json())
+      .then((d) => {
+        const v = Number(d?.reserveBalance ?? d?.balance ?? d?.totalReserve);
+        if (!isNaN(v)) setReserve(v);
+      })
+      .catch(() => {});
+  }, []);
+
+  const displayReserve = reserve !== null ? `$${reserve.toFixed(2)}` : '$—';
+  const pct = reserve !== null ? Math.min((reserve / 10000) * 100, 100) : 1;
+
+  return (
+    <motion.div
+      {...fadeUp(0.15)}
+      className="relative rounded-2xl border bg-card overflow-hidden"
+      style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+        <div className="flex items-center gap-2">
+          <ZeusLogoIcon size={22} />
+          <span className="font-semibold text-white">Reserve Status</span>
+        </div>
+        <span className="flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+          X Layer Mainnet
+        </span>
+      </div>
+
+      {/* Reserve health */}
+      <div className="px-6 py-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+        <div className="flex items-end justify-between mb-3">
+          <div>
+            <div className="text-xs text-white/40 uppercase tracking-wider font-mono mb-1">Reserve Health</div>
+            <div className="text-3xl font-bold text-white font-mono">{displayReserve}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-white/40 uppercase tracking-wider font-mono mb-1">Min Threshold</div>
+            <div className="text-lg font-bold text-primary font-mono">$100.00</div>
+          </div>
+        </div>
+        {/* Progress bar */}
+        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+          <motion.div
+            className="h-full rounded-full"
+            style={{ background: 'linear-gradient(90deg, #F5A623, #22c55e)' }}
+            initial={{ width: 0 }}
+            animate={{ width: `${pct}%` }}
+            transition={{ duration: 1, delay: 0.5 }}
+          />
+        </div>
+      </div>
+
+      {/* Bottom grid */}
+      <div className="grid grid-cols-2">
+        {/* Daily payout limits */}
+        <div className="px-5 py-4 border-r" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+          <div className="text-xs text-white/40 uppercase tracking-wider font-mono mb-2">Daily Payout Limit</div>
+          <div className="text-2xl font-bold text-white font-mono">$1,000</div>
+          <div className="text-xs text-primary mt-1">Remaining today: $1,000</div>
+        </div>
+
+        {/* Fund reserve */}
+        <div className="px-5 py-4">
+          <div className="text-xs text-white/40 uppercase tracking-wider font-mono mb-2">Fund Reserve</div>
+          <p className="text-xs text-white/50 leading-relaxed mb-3">
+            Anyone can provide liquidity to protect AI agents from failed paid calls.
+          </p>
+          <Link href="/reserve">
+            <button className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-mono text-white/70 hover:text-white transition-colors" style={{ background: 'rgba(245,166,35,0.1)', border: '1px solid rgba(245,166,35,0.2)' }}>
+              <span>Add USDC</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </Link>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/* ── Main Landing ───────────────────────────────────────────────────────── */
+export default function Landing() {
+  return (
     <div className="overflow-hidden">
-      {/* Hero */}
-      <section className="relative min-h-[90vh] flex items-center">
-        {/* Subtle background — only very faint grid, no glow blobs over text */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          {/* Grid pattern — very subtle */}
+
+      {/* ── Hero ──────────────────────────────────────────────────────────── */}
+      <section className="relative min-h-screen flex items-center">
+        {/* Grid bg */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
           <div
             className="absolute inset-0 opacity-[0.025]"
             style={{
@@ -34,204 +180,287 @@ export default function Landing() {
               backgroundSize: '60px 60px',
             }}
           />
-          {/* Glow only at the very bottom-right, away from text */}
-          <div className="absolute bottom-0 right-0 w-[500px] h-[400px] bg-primary/5 rounded-full blur-[120px]" />
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[500px] bg-primary/5 rounded-full blur-[140px]" />
         </div>
 
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 w-full">
-          <div className="max-w-3xl">
-            {/* Badge */}
-            <motion.div {...fadeIn(0.05)} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 mb-8">
-              <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-              <span className="text-xs font-mono text-primary uppercase tracking-wider">{t.hero.badge}</span>
-            </motion.div>
+        <div className="relative w-full max-w-7xl mx-auto px-8 lg:px-12 py-24">
+          <div className="grid grid-cols-2 gap-16 items-center">
 
-            {/* Headline */}
-            <motion.h1
-              {...fadeUp(0.12)}
-              className="text-5xl sm:text-6xl lg:text-7xl font-bold leading-tight tracking-tight mb-6"
-            >
-              <span className="text-foreground">{t.hero.title1}</span>
-              <br />
-              <span className="text-primary">{t.hero.title2}</span>
-            </motion.h1>
+            {/* Left col */}
+            <div>
+              {/* Live badge */}
+              <motion.div {...fadeUp(0)} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 mb-8">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                <span className="text-xs font-mono text-primary uppercase tracking-wider">
+                  Zeus Insurance live on X Layer Mainnet
+                </span>
+              </motion.div>
 
-            <motion.p
-              {...fadeUp(0.22)}
-              className="text-lg sm:text-xl text-muted-foreground leading-relaxed mb-10 max-w-2xl"
-            >
-              {t.hero.subtitle}
-            </motion.p>
+              {/* Headline */}
+              <motion.h1 {...fadeUp(0.08)} className="text-6xl xl:text-7xl font-bold leading-[1.05] tracking-tight mb-6 text-white">
+                On-chain<br />
+                insurance for<br />
+                <span className="text-primary">AI agents</span><br />
+                that cannot<br />
+                afford failed<br />
+                API calls.
+              </motion.h1>
 
-            {/* CTAs */}
-            <motion.div {...fadeUp(0.32)} className="flex flex-col sm:flex-row gap-4">
-              <Link href="/dashboard">
-                <Button size="lg" className="font-mono uppercase tracking-wider gap-2 text-sm px-8">
-                  {t.hero.cta_buy}
+              <motion.p {...fadeUp(0.18)} className="text-base text-white/50 leading-relaxed mb-10 max-w-md">
+                Zeus protects agents and Web3 services with smart-contract escrow, USDC reserves, automated compensation, and x402 payment flows — live on X Layer Mainnet.
+              </motion.p>
+
+              {/* CTAs */}
+              <motion.div {...fadeUp(0.26)} className="flex items-center gap-3 mb-16">
+                <Link href="/dashboard">
+                  <button className="flex items-center gap-2 px-6 py-3 rounded-full font-mono text-sm font-semibold bg-primary text-black hover:bg-primary/90 transition-colors">
+                    <ArrowUpRight className="w-4 h-4" />
+                    Open App
+                  </button>
+                </Link>
+                <a
+                  href="https://github.com/igor-vii/Zeus-Insurance-Escrow"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-6 py-3 rounded-full font-mono text-sm text-white/70 hover:text-white transition-colors"
+                  style={{ border: '1px solid rgba(255,255,255,0.12)' }}
+                >
+                  View GitHub
                   <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <Link href="/docs">
-                <Button size="lg" variant="outline" className="font-mono uppercase tracking-wider gap-2 text-sm px-8 border-border hover:border-primary/50">
-                  {t.hero.cta_docs}
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </Link>
-            </motion.div>
+                </a>
+              </motion.div>
 
-            {/* Stats */}
-            <motion.div
-              {...fadeIn(0.5)}
-              className="grid grid-cols-3 gap-6 mt-16 pt-8 border-t border-border/50"
-            >
-              {[
-                { value: t.hero.stat_reserve, label: t.hero.stat_reserve_label },
-                { value: t.hero.stat_policies, label: t.hero.stat_policies_label },
-                { value: t.hero.stat_payout, label: t.hero.stat_payout_label },
-              ].map((stat, i) => (
-                <motion.div key={stat.label} {...fadeUp(0.5 + i * 0.1)}>
-                  <div className="text-2xl sm:text-3xl font-bold text-primary font-mono">{stat.value}</div>
-                  <div className="text-xs text-muted-foreground mt-1 leading-tight">{stat.label}</div>
-                </motion.div>
-              ))}
-            </motion.div>
+              {/* Metric chips */}
+              <motion.div {...fadeUp(0.34)} className="flex items-center gap-3">
+                {[
+                  { label: 'PREMIUM', value: '7%+', sub: 'Risk-adjusted bps' },
+                  { label: 'TOKEN', value: 'USDC', sub: 'X Layer Mainnet' },
+                  { label: 'FLOW', value: 'x402', sub: 'Agent payments' },
+                ].map((chip) => (
+                  <div
+                    key={chip.label}
+                    className="px-5 py-3 rounded-xl"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  >
+                    <div className="text-xs text-white/40 uppercase tracking-wider font-mono mb-1">{chip.label}</div>
+                    <div className="text-lg font-bold text-white font-mono">{chip.value}</div>
+                    <div className="text-xs text-white/35 mt-0.5">{chip.sub}</div>
+                  </div>
+                ))}
+              </motion.div>
+            </div>
+
+            {/* Right col — Reserve card */}
+            <div>
+              <ReserveCard />
+            </div>
           </div>
         </div>
-
-        {/* Animated hero logo — right side, does NOT overlap text column */}
-        <motion.div
-          className="absolute right-4 lg:right-12 top-1/2 -translate-y-1/2 hidden lg:flex items-center justify-center pointer-events-none"
-          initial={{ opacity: 0, scale: 0.85 }}
-          animate={{ opacity: 0.12, scale: 1 }}
-          transition={{ duration: 1, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
-        >
-          {/* Slow breathing glow behind the logo */}
-          <motion.div
-            className="absolute w-64 h-64 bg-primary/20 rounded-full blur-[60px]"
-            animate={{ scale: [1, 1.12, 1], opacity: [0.6, 1, 0.6] }}
-            transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-          />
-          <ZeusLogoIcon size={280} className="relative" />
-        </motion.div>
       </section>
 
-      {/* Features */}
-      <section className="py-24 border-t border-border/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* ── Simple Example ────────────────────────────────────────────────── */}
+      <section className="py-20 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="max-w-7xl mx-auto px-8 lg:px-12">
           <motion.div
-            className="text-center mb-16"
+            className="text-center mb-12"
             initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: 0.45 }}
           >
-            <h2 className="text-3xl sm:text-4xl font-bold mb-4">{t.features.title}</h2>
-            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">{t.features.subtitle}</p>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 mb-5">
+              <Zap className="w-3.5 h-3.5 text-primary" />
+              <span className="text-xs font-mono text-white/50 uppercase tracking-wider">How it works in practice</span>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-3">
+              See the magic happen in <span className="text-primary">5 seconds</span>
+            </h2>
+            <p className="text-white/40 text-sm max-w-lg mx-auto">
+              Your agent pays $1 for an API call. The seller fails to deliver. Zeus detects the failure on-chain and returns $0.93 automatically.
+            </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+            className="max-w-2xl mx-auto"
+          >
+            <div
+              className="rounded-2xl p-8"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <FlowDemo />
+
+              {/* Detail row */}
+              <div className="mt-8 grid grid-cols-3 gap-4 pt-6" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                {[
+                  { label: 'Premium paid', value: '$0.07', note: '7% of insured amount' },
+                  { label: 'Amount insured', value: '$1.00', note: 'USDC on X Layer' },
+                  { label: 'Refund received', value: '$0.93', note: 'net of premium' },
+                ].map((item) => (
+                  <div key={item.label} className="text-center">
+                    <div className="text-xs text-white/30 uppercase font-mono tracking-wider mb-1">{item.label}</div>
+                    <div className="text-xl font-bold text-white font-mono">{item.value}</div>
+                    <div className="text-xs text-white/30 mt-0.5">{item.note}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ── Services / Features ───────────────────────────────────────────── */}
+      <section className="py-20 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="max-w-7xl mx-auto px-8 lg:px-12">
+          <motion.div
+            className="mb-14"
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.45 }}
+          >
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 mb-5">
+              <Shield className="w-3.5 h-3.5 text-primary" />
+              <span className="text-xs font-mono text-white/50 uppercase tracking-wider">Our Services</span>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-3">Built for the Agent Economy</h2>
+            <p className="text-white/40 text-sm max-w-lg">Every feature is designed to make M2M commerce safe and reliable on X Layer Mainnet.</p>
+          </motion.div>
+
+          <div className="grid grid-cols-2 gap-5">
             {[
-              { icon: Zap, title: t.features.f1_title, desc: t.features.f1_desc },
-              { icon: Eye, title: t.features.f2_title, desc: t.features.f2_desc },
-              { icon: Shield, title: t.features.f3_title, desc: t.features.f3_desc },
-              { icon: Cpu, title: t.features.f4_title, desc: t.features.f4_desc },
-            ].map(({ icon: Icon, title, desc }, i) => (
+              {
+                icon: Zap,
+                tag: 'Insurance',
+                title: 'Instant Automated Payouts',
+                desc: 'Smart contracts detect API failures on-chain and automatically pay out from the reserve fund. No disputes, no delays — settlement in seconds.',
+                stat: '~5s',
+                statLabel: 'avg payout time',
+              },
+              {
+                icon: Shield,
+                tag: 'Escrow',
+                title: 'On-Chain Escrow Protection',
+                desc: 'ZeusEscrowBOT holds funds in smart contract escrow until service delivery is confirmed. Both parties are protected without a trusted third party.',
+                stat: '100%',
+                statLabel: 'non-custodial',
+              },
+              {
+                icon: Eye,
+                tag: 'Transparency',
+                title: 'Fully Auditable On-Chain',
+                desc: 'Every policy, premium, and payout is recorded on X Layer Mainnet (Chain ID 196). Fully auditable by anyone, forever.',
+                stat: 'Chain 196',
+                statLabel: 'X Layer Mainnet',
+              },
+              {
+                icon: Cpu,
+                tag: 'Agent-Native',
+                title: 'x402 Protocol Integration',
+                desc: 'AI agents buy and claim policies via REST API using the x402 payment protocol — zero human interaction required. MCP server included.',
+                stat: 'REST + MCP',
+                statLabel: 'agent APIs',
+              },
+            ].map(({ icon: Icon, tag, title, desc, stat, statLabel }, i) => (
               <motion.div
                 key={title}
-                className="group relative p-6 rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-primary/[0.02] transition-all duration-300"
+                className="group relative rounded-2xl p-7 hover:border-primary/30 transition-all duration-300 cursor-default"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.45, delay: i * 0.08 }}
+                transition={{ duration: 0.4, delay: i * 0.07 }}
               >
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
-                  <Icon className="w-5 h-5 text-primary" />
+                <div className="flex items-start justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-primary/10 group-hover:bg-primary/20 transition-colors">
+                      <Icon className="w-4.5 h-4.5 text-primary" />
+                    </div>
+                    <span className="text-xs font-mono text-white/35 uppercase tracking-wider">{tag}</span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xl font-bold text-primary font-mono">{stat}</div>
+                    <div className="text-xs text-white/30">{statLabel}</div>
+                  </div>
                 </div>
-                <h3 className="font-semibold text-foreground mb-2">{title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+                <h3 className="font-semibold text-white mb-2">{title}</h3>
+                <p className="text-sm text-white/40 leading-relaxed">{desc}</p>
               </motion.div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* How it works */}
-      <section className="py-24 bg-card/20 border-y border-border/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            className="text-center mb-16"
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-          >
-            <h2 className="text-3xl sm:text-4xl font-bold mb-4">{t.how.title}</h2>
-            <p className="text-muted-foreground text-lg">{t.how.subtitle}</p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+      {/* ── Protocol stats ─────────────────────────────────────────────────── */}
+      <section className="py-16 border-t border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="max-w-7xl mx-auto px-8 lg:px-12">
+          <div className="grid grid-cols-4 gap-8">
             {[
-              { num: '01', title: t.how.s1_title, desc: t.how.s1_desc },
-              { num: '02', title: t.how.s2_title, desc: t.how.s2_desc },
-              { num: '03', title: t.how.s3_title, desc: t.how.s3_desc },
-              { num: '04', title: t.how.s4_title, desc: t.how.s4_desc },
-            ].map(({ num, title, desc }, idx) => (
+              { value: '7%', label: 'Premium rate', sub: 'Risk-adjusted bps' },
+              { value: '$1,000', label: 'Daily payout cap', sub: 'Per reserve cycle' },
+              { value: '93%', label: 'Net refund rate', sub: 'After premium deduction' },
+              { value: '196', label: 'Chain ID', sub: 'X Layer Mainnet (OKX)' },
+            ].map((s, i) => (
               <motion.div
-                key={num}
-                className="relative"
-                initial={{ opacity: 0, y: 20 }}
+                key={s.label}
+                className="text-center"
+                initial={{ opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.45, delay: idx * 0.1 }}
+                transition={{ duration: 0.4, delay: i * 0.07 }}
               >
-                {idx < 3 && (
-                  <div
-                    className="hidden lg:block absolute top-8 h-px bg-gradient-to-r from-primary/30 to-transparent z-0"
-                    style={{ width: 'calc(100% - 2rem)', left: 'calc(100% - 1rem)' }}
-                  />
-                )}
-                <div className="relative z-10">
-                  <div className="text-5xl font-bold text-primary/20 font-mono leading-none mb-4">{num}</div>
-                  <h3 className="font-semibold text-foreground mb-2">{title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
-                </div>
+                <div className="text-4xl font-bold text-primary font-mono mb-1">{s.value}</div>
+                <div className="text-sm font-medium text-white mb-0.5">{s.label}</div>
+                <div className="text-xs text-white/30">{s.sub}</div>
               </motion.div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* ── CTA ───────────────────────────────────────────────────────────── */}
       <section className="py-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto px-8 lg:px-12">
           <motion.div
-            className="relative rounded-2xl border border-primary/20 bg-primary/5 overflow-hidden"
+            className="relative rounded-2xl overflow-hidden text-center py-20 px-8"
+            style={{ background: 'rgba(245,166,35,0.05)', border: '1px solid rgba(245,166,35,0.15)' }}
             initial={{ opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.55 }}
           >
-            <div className="relative text-center py-20 px-8">
+            {/* subtle glow */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-48 bg-primary/10 rounded-full blur-[80px]" />
+            <div className="relative">
               <motion.div
                 animate={{ rotate: [0, 5, -5, 0] }}
                 transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
                 className="inline-block mb-6"
               >
-                <ZeusLogoIcon size={48} className="opacity-80" />
+                <ZeusLogoIcon size={44} />
               </motion.div>
-              <h2 className="text-3xl sm:text-4xl font-bold mb-4">{t.cta.title}</h2>
-              <p className="text-muted-foreground text-lg mb-10 max-w-xl mx-auto">{t.cta.subtitle}</p>
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <h2 className="text-3xl font-bold text-white mb-3">Ready to Protect Your Payments?</h2>
+              <p className="text-white/40 text-base mb-10 max-w-md mx-auto">
+                Join the decentralized insurance protocol for AI agents. Live on X Layer Mainnet now.
+              </p>
+              <div className="flex items-center gap-3 justify-center">
                 <Link href="/dashboard">
-                  <Button size="lg" className="font-mono uppercase tracking-wider gap-2 px-10">
-                    {t.cta.btn}
-                    <ArrowRight className="w-4 h-4" />
-                  </Button>
+                  <button className="flex items-center gap-2 px-7 py-3 rounded-full font-mono text-sm font-semibold bg-primary text-black hover:bg-primary/90 transition-colors">
+                    <ArrowUpRight className="w-4 h-4" />
+                    Launch App
+                  </button>
                 </Link>
                 <Link href="/docs">
-                  <Button size="lg" variant="outline" className="font-mono uppercase tracking-wider border-primary/30 hover:border-primary/60 px-10">
-                    {t.cta.docs}
-                  </Button>
+                  <button
+                    className="flex items-center gap-2 px-7 py-3 rounded-full font-mono text-sm text-white/60 hover:text-white transition-colors"
+                    style={{ border: '1px solid rgba(255,255,255,0.12)' }}
+                  >
+                    View Documentation
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 </Link>
               </div>
             </div>

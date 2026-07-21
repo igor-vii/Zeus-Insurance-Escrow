@@ -71,7 +71,7 @@ export default function About() {
 
       {/* Contract info */}
       <div className="mt-12 p-6 rounded-xl border border-border bg-card/50">
-        <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-4">Deployed Contracts · Base Sepolia</h3>
+        <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-4">Deployed Contracts · X Layer Mainnet</h3>
         <div className="space-y-2">
           {[
             { name: 'ZeusInsuranceV2', addr: '0xE0b89E0DEa7Fc7AEa7CEcC62a0A14d52de42Ce3b' },
