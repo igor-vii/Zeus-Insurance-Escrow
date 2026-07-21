@@ -146,7 +146,6 @@ function slide1(doc) {
     .text('Decentralized insurance and escrow for AI agents.', 0, H / 2 + 210, { align: 'center', width: W });
 
   badge(doc, 36, H - 50, 'X Layer Mainnet  |  Chain 196', GREEN);
-  badge(doc, 260, H - 50, 'OKX Fund Round 1', GOLD);
 
   zeusShield(doc, W - 60, 10, 42);
 }
@@ -522,7 +521,6 @@ function slide6(doc) {
 // ── Build the PDF ─────────────────────────────────────────────────────────────
 const doc = new PDFDocument({
   size: [W, H],
-  layout: 'landscape',
   margin: 0,
   info: {
     Title:    'Zeus Insurance Protocol — OKX Fund Pitch Deck',
