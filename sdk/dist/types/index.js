@@ -6,6 +6,7 @@ export const NetworkSchema = z.enum([
     "base-sepolia",
     "sepolia",
     "localhost",
+    "x-layer",
 ]);
 export const NETWORKS = {
     mainnet: {
@@ -13,6 +14,7 @@ export const NETWORKS = {
         chainId: 1,
         escrowAddress: "", // not yet deployed on Ethereum mainnet
         insuranceAddress: "", // not yet deployed on Ethereum mainnet
+        reserveAddress: "", // not yet deployed on Ethereum mainnet
         usdcAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
         rpcUrl: "https://eth.llamarpc.com",
     },
@@ -20,7 +22,8 @@ export const NETWORKS = {
         name: "base-mainnet",
         chainId: 8453,
         escrowAddress: "0x8D10C2c6C92b613C1938fe532f0e391044e76188",
-        insuranceAddress: "", // Not yet deployed on mainnet
+        insuranceAddress: "", // not yet deployed on Base mainnet
+        reserveAddress: "", // not yet deployed on Base mainnet
         usdcAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Native USDC on Base
         rpcUrl: "https://mainnet.base.org",
     },
@@ -30,6 +33,7 @@ export const NETWORKS = {
         // Deployed 2026-07-18 — see contracts/scripts/deploy-escrow-bot.ts
         escrowAddress: "0x87365462353bCBAB2CF0DF57c7Cb15519C5B7c76",
         insuranceAddress: "0x58038Df01A824C94F3D2fEd6d4e1bEf2211Ad8F4", // Deployed 2026-07-20 (v2 + oracle)
+        reserveAddress: "0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47",
         usdcAddress: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
         rpcUrl: "https://sepolia.base.org",
     },
@@ -38,6 +42,7 @@ export const NETWORKS = {
         chainId: 11155111,
         escrowAddress: "",
         insuranceAddress: "",
+        reserveAddress: "",
         usdcAddress: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
         rpcUrl: "https://rpc.sepolia.org",
     },
@@ -46,8 +51,18 @@ export const NETWORKS = {
         chainId: 31337,
         escrowAddress: "", // set after local `deploy:escrow-local`
         insuranceAddress: "",
+        reserveAddress: "",
         usdcAddress: "",
         rpcUrl: "http://127.0.0.1:8545",
+    },
+    "x-layer": {
+        name: "x-layer",
+        chainId: 196,
+        escrowAddress: "0x0d4AD4C6b60F445d0e478E0AF48075340AC51Cf5",
+        insuranceAddress: "0x8D10C2c6C92b613C1938fe532f0e391044e76188",
+        reserveAddress: "0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c",
+        usdcAddress: "0x74b7f16337b8972027f6196a17a631ac6de26d22",
+        rpcUrl: "https://rpc.xlayer.tech",
     },
 };
 /* ──────────────────────────── Validation Schemas ──────────────────────────── */

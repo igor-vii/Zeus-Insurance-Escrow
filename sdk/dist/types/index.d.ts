@@ -1,5 +1,5 @@
 import { z } from "zod";
-export declare const NetworkSchema: z.ZodEnum<["mainnet", "base-mainnet", "base-sepolia", "sepolia", "localhost"]>;
+export declare const NetworkSchema: z.ZodEnum<["mainnet", "base-mainnet", "base-sepolia", "sepolia", "localhost", "x-layer"]>;
 export type Network = z.infer<typeof NetworkSchema>;
 export interface NetworkConfig {
     name: string;
@@ -8,6 +8,8 @@ export interface NetworkConfig {
     escrowAddress: string;
     /** ZeusInsuranceV2 contract address */
     insuranceAddress: string;
+    /** ZeusReserveV2 contract address */
+    reserveAddress: string;
     /** ERC-20 token used by the escrow (USDC) */
     usdcAddress: string;
     rpcUrl: string;
