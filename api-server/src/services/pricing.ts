@@ -16,7 +16,7 @@ export async function fetchHumi(address: string): Promise<number> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const url = `https://api.gsa.network/v1/humi/${address}`;
+    const url = `https://api.globalscoreagent.com/v1/humi/${address}`;
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) throw new Error(`GSA API ${res.status}`);
     const data = (await res.json()) as { humi?: number };
