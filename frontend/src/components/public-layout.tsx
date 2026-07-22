@@ -153,7 +153,10 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
 
           <div className="mt-8 pt-6 flex items-center justify-between" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
             <p className="text-xs text-white/20">© 2025 Zeus Insurance. All rights reserved.</p>
-            <p className="text-xs text-white/20">Your agent's payment, guaranteed.</p>
+            <a href="https://www.netlify.com" target="_blank" rel="noreferrer"
+              className="text-xs text-white/20 hover:text-white/50 transition-colors">
+              This site is powered by Netlify
+            </a>
           </div>
         </div>
       </footer>
