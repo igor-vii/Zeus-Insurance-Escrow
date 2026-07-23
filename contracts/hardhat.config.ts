@@ -33,7 +33,9 @@ const config: HardhatUserConfig = {
     ],
   },
   networks: {
-    hardhat: {},
+    hardhat: {
+      chainId: 196, // X Layer chain ID — required for onlyXLayer modifier in tests
+    },
     "base-sepolia": {
       url: BASE_SEPOLIA_RPC_URL,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],

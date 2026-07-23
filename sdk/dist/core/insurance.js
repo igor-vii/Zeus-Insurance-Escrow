@@ -1,5 +1,5 @@
 import { Contract, Interface } from "ethers";
-import { CreatePolicySchema, ClaimPayoutSchema, GetPolicySchema, SubmitObservationSchema, ZeusError, ZeusNotConnectedError, ZeusValidationError, ZeusTransactionError, ZeusContractError, PolicyStatus, } from "../types/index.js";
+import { CreatePolicySchema, ClaimPayoutSchema, GetPolicySchema, SubmitObservationSchema, ZeusError, ZeusNotConnectedError, ZeusValidationError, ZeusTransactionError, ZeusContractError, } from "../types/index.js";
 /**
  * ZeusInsuranceV2 ABI — covers both the original timeout-based interface
  * and the new oracle/watcher observation interface.
@@ -175,19 +175,6 @@ export class ZeusInsurance {
     }
     /**
      * Submit a signed oracle observation on behalf of a watcher.
-     *
-     * The observation must be signed by a registered watcher address using
-     * EIP-191 personal_sign over keccak256(requestId, timestamp, status,
-     * metadataHash, nonce).  Any account can relay the signed struct — the
-     * contract verifies authenticity via ECDSA.
-     *
-     * Vote resolution fires automatically once ≥ 3 observations accumulate for
-     * the same requestId:
-     *   ≥ 2 TIMEOUT (status=1) votes → payout approved
-     *   otherwise                    → claim rejected
-     *
-     * @param policyId     ID of the policy being observed.
-     * @param observation  Signed observation struct from the watcher.
      */
     async submitObservation(policyId, observation) {
         const parsed = SubmitObservationSchema.safeParse({ policyId, observation });
@@ -231,17 +218,14 @@ export class ZeusInsurance {
             const p = await contract.getPolicy(BigInt(parsed.data.policyId));
             const status = Number(p.status);
             return {
-                id: parsed.data.policyId,
                 buyer: String(p.buyer),
                 seller: String(p.seller),
                 amount: BigInt(p.amount),
                 premium: BigInt(p.premium),
-                retryDeadline: Number(p.retryDeadline),
-                maxRetries: Number(p.maxRetries),
+                timeout: BigInt(p.retryDeadline),
+                coverageMask: 0n,
                 status,
-                isActive: status === PolicyStatus.Active,
-                isPaidOut: status === PolicyStatus.Claimed,
-                isExpired: status === PolicyStatus.Expired,
+                metadata: "",
             };
         }
         catch (err) {

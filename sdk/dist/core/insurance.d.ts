@@ -32,19 +32,6 @@ export declare class ZeusInsurance {
     claimPayout(policyId: number): Promise<TransactionResult>;
     /**
      * Submit a signed oracle observation on behalf of a watcher.
-     *
-     * The observation must be signed by a registered watcher address using
-     * EIP-191 personal_sign over keccak256(requestId, timestamp, status,
-     * metadataHash, nonce).  Any account can relay the signed struct — the
-     * contract verifies authenticity via ECDSA.
-     *
-     * Vote resolution fires automatically once ≥ 3 observations accumulate for
-     * the same requestId:
-     *   ≥ 2 TIMEOUT (status=1) votes → payout approved
-     *   otherwise                    → claim rejected
-     *
-     * @param policyId     ID of the policy being observed.
-     * @param observation  Signed observation struct from the watcher.
      */
     submitObservation(policyId: number, observation: Observation): Promise<TransactionResult>;
     /** Read policy state from chain. */

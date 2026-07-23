@@ -1,384 +1,204 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.27;
+pragma solidity 0.8.24;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import "./ZeusReserveV2.sol";
-import "./interfaces/IInsuranceContract.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/**
- * @title ZeusInsuranceV2
- * @notice Insurance contract that issues policies, collects USDC premiums into the
- *         reserve, and settles claims in two ways:
- *
- *         1. Timeout-based (buyer calls claimPayout after retryDeadline).
- *         2. Oracle-based (a quorum of registered watchers submit signed
- *            observations; the contract resolves the vote automatically).
- *
- * Integration flow:
- *   1. Deploy ZeusReserveV2.
- *   2. Deploy ZeusInsuranceV2(usdc, reserve).
- *   3. ZeusReserveV2.setInsuranceContract(address(this)).
- *   4. addWatcher() for each off-chain oracle node.
- *   5. Buyers call buyInsurance() — premium flows to reserve.
- *   6. Claim via claimPayout() OR via watcher observations (3-of-N voting).
- */
-contract ZeusInsuranceV2 is IInsuranceContract, ReentrancyGuard, Ownable {
+contract ZeusInsuranceV2 is AccessControl, Pausable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
 
-    // ── Enums ─────────────────────────────────────────────────────────────────
+    uint256 public constant XLAYER_CHAIN_ID = 196;
+    uint256 public constant ALL_INCLUSIVE_MASK = 0x1F;
+    uint256 public constant BPS = 10_000;
+    uint256 public constant DEFAULT_PENALTY_SCORE = 10_000;
 
-    /// @notice On-chain lifecycle status for each policy.
-    enum PolicyStatus { Active, Claimed, Rejected, Expired }
+    bytes32 public constant INSURANCE_MANAGER_ROLE = keccak256("INSURANCE_MANAGER_ROLE");
+    bytes32 public constant CLAIM_EVALUATOR_ROLE = keccak256("CLAIM_EVALUATOR_ROLE");
 
-    // ── Structs ───────────────────────────────────────────────────────────────
+    enum CoverageType { APIFailure, NetworkError, WalletLimit, GasShortage, MCPError, ArbitrationRisk }
+    enum PolicyStatus { Active, Claimed, Expired, Cancelled }
 
     struct Policy {
         address buyer;
         address seller;
-        uint256 amount;         // Coverage amount in USDC (6-decimal units)
-        uint256 premium;        // Premium paid in USDC (6-decimal units)
-        uint256 retryDeadline;  // Unix timestamp after which claimPayout is valid
-        uint256 maxRetries;
+        uint256 amount;
+        uint256 premium;
+        uint256 timeout;
+        uint256 coverageMask;
         PolicyStatus status;
+        string metadata;
     }
 
-    /**
-     * @notice A signed observation submitted by a registered watcher node.
-     *
-     * @param requestId    keccak256(buyer, seller, timestamp) — unique per check.
-     * @param timestamp    Unix time of the observation (±120 s tolerance).
-     * @param status       Service health code: 0=OK 1=TIMEOUT 2=ERROR_500 3=LATE
-     * @param metadataHash Arbitrary metadata digest (e.g. IPFS CID of raw logs).
-     * @param nonce        Per-watcher anti-replay nonce.
-     * @param signature    EIP-191 personal_sign over (requestId, timestamp, status,
-     *                     metadataHash, nonce).
-     */
-    struct Observation {
-        bytes32 requestId;
-        uint256 timestamp;
-        uint8   status;
-        bytes32 metadataHash;
-        uint256 nonce;
-        bytes   signature;
-    }
+    uint256 private _policyIdCounter;
+    mapping(uint256 => Policy) public policies;
+    mapping(address => uint256) public penaltyScores;
+    address public paymentToken;
 
-    /// @dev Per-requestId vote accumulator (no nested mapping — stored separately).
-    struct VoteTally {
-        uint256 policyId;
-        uint8[] statuses;
-        bool    resolved;
-    }
-
-    // ── State ─────────────────────────────────────────────────────────────────
-
-    IERC20       public usdc;
-    ZeusReserveV2 public reserve;
-
-    mapping(uint256 => Policy)    public policies;
-    uint256                       public nextPolicyId;
-
-    // Watcher registry
-    address[]                     public watcherList;
-    mapping(address => bool)      public isWatcher;
-
-    // Oracle voting
-    mapping(bytes32 => VoteTally)             public  pendingVotes;
-    mapping(bytes32 => mapping(address => bool)) public hasVoted;
-    mapping(bytes32 => bool)                  public  usedRequestIds;
-    mapping(uint256 => bytes32)               public  policyToRequestId;
-
-    // ── Events ────────────────────────────────────────────────────────────────
-
-    event PolicyCreated(
-        uint256 indexed policyId,
-        address indexed buyer,
-        address indexed seller,
-        uint256 amount,
-        uint256 premium,
-        uint256 retryDeadline
-    );
-    event PayoutExecuted(uint256 indexed policyId, uint256 amount);
+    event PolicyCreated(uint256 indexed policyId, address indexed buyer, address indexed seller, uint256 amount, uint256 premium, uint256 coverageMask, uint256 timeout, string metadata);
+    event PolicyClaimed(uint256 indexed policyId, address indexed buyer, uint256 payout);
     event PolicyExpired(uint256 indexed policyId);
+    event PolicyCancelled(uint256 indexed policyId);
+    event PenaltyScoreUpdated(address indexed agent, uint256 oldScore, uint256 newScore);
+    event PaymentTokenUpdated(address oldToken, address newToken);
 
-    event WatcherAdded(address indexed watcher);
-    event WatcherRemoved(address indexed watcher);
-
-    event ObservationSubmitted(
-        bytes32 indexed requestId,
-        address indexed watcher,
-        uint8   status
-    );
-    event VoteResolved(
-        bytes32 indexed requestId,
-        uint8   decision,   // 1 = payout approved, 0 = claim rejected
-        uint256 indexed policyId
-    );
-    event ClaimRejected(uint256 indexed policyId);
-
-    // ── Constructor ───────────────────────────────────────────────────────────
-
-    constructor(address _usdc, address _reserve) Ownable(msg.sender) {
-        require(_usdc    != address(0), "Invalid USDC address");
-        require(_reserve != address(0), "Invalid reserve address");
-        usdc    = IERC20(_usdc);
-        reserve = ZeusReserveV2(_reserve);
+    modifier onlyXLayer() {
+        require(block.chainid == XLAYER_CHAIN_ID, "Zeus: not X Layer");
+        _;
     }
 
-    // ── Policy management ─────────────────────────────────────────────────────
+    modifier policyActive(uint256 policyId) {
+        require(policies[policyId].status == PolicyStatus.Active, "Zeus: policy not active");
+        _;
+    }
 
-    /**
-     * @notice Purchase an insurance policy.
-     *
-     * Premium formula (mirrors ZeusReserveV2 and the SDK):
-     *   premiumBps = 700 + (maxRetries − 1) × 200
-     *   premium    = amount × premiumBps / 10 000
-     *
-     * The USDC premium is transferred directly to the reserve.
-     *
-     * @param seller         Counterparty address being insured against.
-     * @param amount         Coverage amount in USDC (6-decimal units).
-     * @param timeoutSeconds Per-retry timeout window in seconds.
-     * @param maxRetries     Number of retry windows allowed (1–10).
-     */
-    function buyInsurance(
-        address seller,
-        uint256 amount,
-        uint256 timeoutSeconds,
-        uint256 maxRetries
-    ) external nonReentrant {
-        require(seller      != address(0),           "Invalid seller");
-        require(amount       > 0,                    "Amount must be > 0");
-        require(maxRetries   > 0 && maxRetries <= 10,"Invalid retries");
-        require(timeoutSeconds > 0,                  "Timeout must be > 0");
+    constructor(address admin, address _paymentToken) {
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(INSURANCE_MANAGER_ROLE, admin);
+        _grantRole(CLAIM_EVALUATOR_ROLE, admin);
+        paymentToken = _paymentToken;
+    }
 
-        uint256 premiumBps = 700 + (maxRetries - 1) * 200;
-        uint256 premium    = (amount * premiumBps) / 10_000;
+    function pause() external onlyRole(INSURANCE_MANAGER_ROLE) { _pause(); }
+    function unpause() external onlyRole(INSURANCE_MANAGER_ROLE) { _unpause(); }
 
-        require(
-            usdc.transferFrom(msg.sender, address(reserve), premium),
-            "Premium transfer failed"
-        );
+    function setPaymentToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        emit PaymentTokenUpdated(paymentToken, token);
+        paymentToken = token;
+    }
 
-        uint256 retryDeadline = block.timestamp + timeoutSeconds * maxRetries;
+    function setPenaltyScore(address agent, uint256 scoreBps) external onlyRole(INSURANCE_MANAGER_ROLE) {
+        require(scoreBps >= BPS && scoreBps <= 3 * BPS, "Zeus: invalid score");
+        uint256 old = penaltyScores[agent];
+        penaltyScores[agent] = scoreBps;
+        emit PenaltyScoreUpdated(agent, old, scoreBps);
+    }
 
-        policies[nextPolicyId] = Policy({
-            buyer:         msg.sender,
-            seller:        seller,
-            amount:        amount,
-            premium:       premium,
-            retryDeadline: retryDeadline,
-            maxRetries:    maxRetries,
-            status:        PolicyStatus.Active
+    function buyPolicy(address seller, uint256 amount, uint256 coverageMask, uint256 timeoutSeconds, string calldata metadata)
+        external payable onlyXLayer whenNotPaused nonReentrant returns (uint256 policyId)
+    {
+        require(coverageMask != 0, "Zeus: empty coverage");
+        require((coverageMask & (1 << uint256(CoverageType.ArbitrationRisk))) == 0, "Zeus: arbitration is separate product");
+        require(amount > 0 && timeoutSeconds > 0, "Zeus: invalid params");
+
+        uint256 premium = _quote(coverageMask, msg.sender, amount);
+        _collectPremium(msg.sender, premium);
+
+        policyId = _policyIdCounter;
+        unchecked { _policyIdCounter++; }
+
+        policies[policyId] = Policy({
+            buyer: msg.sender,
+            seller: seller,
+            amount: amount,
+            premium: premium,
+            timeout: block.timestamp + timeoutSeconds,
+            coverageMask: coverageMask,
+            status: PolicyStatus.Active,
+            metadata: metadata
         });
 
-        emit PolicyCreated(nextPolicyId, msg.sender, seller, amount, premium, retryDeadline);
-        nextPolicyId++;
+        emit PolicyCreated(policyId, msg.sender, seller, amount, premium, coverageMask, timeoutSeconds, metadata);
     }
 
-    /**
-     * @notice Timeout-based claim: buyer calls this once retryDeadline has passed.
-     * @param policyId  The policy to claim against.
-     */
-    function claimPayout(uint256 policyId) external nonReentrant {
+    function buyAllInclusivePolicy(address seller, uint256 amount, uint256 timeoutSeconds, string calldata metadata)
+        external payable onlyXLayer whenNotPaused nonReentrant returns (uint256)
+    {
+        return _buyInternal(seller, amount, ALL_INCLUSIVE_MASK, timeoutSeconds, metadata);
+    }
+
+    function _buyInternal(address seller, uint256 amount, uint256 coverageMask, uint256 timeoutSeconds, string calldata metadata)
+        internal returns (uint256 policyId)
+    {
+        uint256 premium = _quote(coverageMask, msg.sender, amount);
+        _collectPremium(msg.sender, premium);
+
+        policyId = _policyIdCounter;
+        unchecked { _policyIdCounter++; }
+
+        policies[policyId] = Policy({
+            buyer: msg.sender,
+            seller: seller,
+            amount: amount,
+            premium: premium,
+            timeout: block.timestamp + timeoutSeconds,
+            coverageMask: coverageMask,
+            status: PolicyStatus.Active,
+            metadata: metadata
+        });
+
+        emit PolicyCreated(policyId, msg.sender, seller, amount, premium, coverageMask, timeoutSeconds, metadata);
+    }
+
+    function claim(uint256 policyId, address payable to, uint256 payoutAmount)
+        external onlyRole(CLAIM_EVALUATOR_ROLE) policyActive(policyId) nonReentrant
+    {
         Policy storage p = policies[policyId];
-        require(p.buyer        == msg.sender,          "Only buyer can claim");
-        require(p.status       == PolicyStatus.Active, "Policy not active");
-        require(block.timestamp >= p.retryDeadline,    "Timeout not yet reached");
+        require(block.timestamp <= p.timeout, "Zeus: expired");
+        require(payoutAmount <= p.amount, "Zeus: payout>amount");
 
-        uint256 payoutAmount = p.amount;
-        address claimant     = p.buyer;
-
-        p.status = PolicyStatus.Claimed; // CEI: state change before external call
-
-        reserve.payClaim(policyId, claimant, payoutAmount);
-
-        emit PayoutExecuted(policyId, payoutAmount);
+        p.status = PolicyStatus.Claimed;
+        _sendPayment(to, payoutAmount);
+        emit PolicyClaimed(policyId, p.buyer, payoutAmount);
     }
 
-    // ── IInsuranceContract — callbacks from ZeusReserveV2 ────────────────────
-
-    /**
-     * @inheritdoc IInsuranceContract
-     * @dev Used by ZeusReserveV2.payClaim() to verify the claim before paying.
-     */
-    function isClaimApproved(
-        uint256 claimId,
-        address claimant,
-        uint256 amount
-    ) external view override returns (bool) {
-        Policy storage p = policies[claimId];
-        return p.status == PolicyStatus.Claimed
-            && p.buyer  == claimant
-            && p.amount == amount;
+    function expire(uint256 policyId) external policyActive(policyId) {
+        Policy storage p = policies[policyId];
+        require(block.timestamp > p.timeout, "Zeus: not expired yet");
+        p.status = PolicyStatus.Expired;
+        emit PolicyExpired(policyId);
     }
 
-    /**
-     * @inheritdoc IInsuranceContract
-     * @dev Called by ZeusReserveV2 after the USDC payout has been sent.
-     */
-    function markClaimFulfilled(uint256 claimId) external override {
-        require(msg.sender == address(reserve), "Only reserve can call");
-        Policy storage p = policies[claimId];
-        emit ClaimApproved(claimId, p.buyer, p.amount);
+    function cancel(uint256 policyId) external policyActive(policyId) {
+        Policy storage p = policies[policyId];
+        require(msg.sender == p.buyer, "Zeus: not buyer");
+        p.status = PolicyStatus.Cancelled;
+        emit PolicyCancelled(policyId);
     }
-
-    // ── Watcher management ────────────────────────────────────────────────────
-
-    /**
-     * @notice Register a new oracle watcher.
-     * @param watcher  EOA address of the off-chain observer node.
-     */
-    function addWatcher(address watcher) external onlyOwner {
-        require(watcher != address(0), "Zero address");
-        require(!isWatcher[watcher],   "Already a watcher");
-        isWatcher[watcher] = true;
-        watcherList.push(watcher);
-        emit WatcherAdded(watcher);
-    }
-
-    /**
-     * @notice Deregister a watcher.
-     * @param watcher  Address to remove from the watcher set.
-     */
-    function removeWatcher(address watcher) external onlyOwner {
-        require(isWatcher[watcher], "Not a watcher");
-        isWatcher[watcher] = false;
-        emit WatcherRemoved(watcher);
-    }
-
-    /// @notice Returns the full list of currently registered watcher addresses.
-    function getWatchers() external view returns (address[] memory) {
-        return watcherList;
-    }
-
-    // ── Oracle observations ───────────────────────────────────────────────────
-
-    /**
-     * @notice Submit a signed health observation for a policy.
-     *
-     * Any address can relay a signed observation on behalf of a watcher —
-     * authenticity is enforced by ECDSA signature recovery.
-     *
-     * Vote resolution fires automatically once ≥ 3 observations accumulate:
-     *   - ≥ 2 TIMEOUT (status == 1) votes → payout approved.
-     *   - Otherwise                       → claim rejected.
-     *
-     * @param policyId  ID of the policy being observed.
-     * @param obs       The signed observation struct.
-     */
-    function submitObservation(uint256 policyId, Observation calldata obs) external {
-        require(!usedRequestIds[obs.requestId], "Request ID already resolved");
-        require(
-            block.timestamp >= obs.timestamp - 120 &&
-            block.timestamp <= obs.timestamp + 120,
-            "Observation timestamp out of window"
-        );
-
-        address signer = _verifyObservation(obs);
-        require(isWatcher[signer],                  "Invalid watcher signature");
-        require(!hasVoted[obs.requestId][signer],   "Watcher already voted");
-
-        Policy storage policy = policies[policyId];
-        require(policy.buyer  != address(0),            "Policy does not exist");
-        require(policy.status == PolicyStatus.Active,   "Policy not active");
-
-        bytes32 expectedId = keccak256(
-            abi.encodePacked(policy.buyer, policy.seller, obs.timestamp)
-        );
-        require(obs.requestId == expectedId, "Invalid requestId");
-
-        VoteTally storage vote = pendingVotes[obs.requestId];
-        if (vote.policyId == 0) {
-            vote.policyId = policyId;
-            policyToRequestId[policyId] = obs.requestId;
-        } else {
-            require(vote.policyId == policyId, "Policy ID mismatch");
-        }
-
-        hasVoted[obs.requestId][signer] = true;
-        vote.statuses.push(obs.status);
-
-        emit ObservationSubmitted(obs.requestId, signer, obs.status);
-
-        if (vote.statuses.length >= 3) {
-            _resolveVote(obs.requestId);
-        }
-    }
-
-    // ── Owner configuration ───────────────────────────────────────────────────
-
-    function setReserve(address _reserve) external onlyOwner {
-        require(_reserve != address(0), "Invalid reserve address");
-        reserve = ZeusReserveV2(_reserve);
-    }
-
-    function setUsdc(address _usdc) external onlyOwner {
-        require(_usdc != address(0), "Invalid USDC address");
-        usdc = IERC20(_usdc);
-    }
-
-    // ── Views ─────────────────────────────────────────────────────────────────
 
     function getPolicy(uint256 policyId) external view returns (Policy memory) {
         return policies[policyId];
     }
 
-    // ── Internal helpers ──────────────────────────────────────────────────────
-
-    function _verifyObservation(Observation calldata obs) internal pure returns (address) {
-        bytes32 msgHash = keccak256(abi.encodePacked(
-            obs.requestId,
-            obs.timestamp,
-            obs.status,
-            obs.metadataHash,
-            obs.nonce
-        ));
-        bytes32 ethHash = MessageHashUtils.toEthSignedMessageHash(msgHash);
-        return ECDSA.recover(ethHash, obs.signature);
+    function hasCoverage(uint256 policyId, CoverageType ct) external view returns (bool) {
+        return (policies[policyId].coverageMask & (1 << uint256(ct))) != 0;
     }
 
-    function _resolveVote(bytes32 requestId) internal {
-        VoteTally storage vote = pendingVotes[requestId];
-        require(!vote.resolved, "Vote already resolved");
+    function currentPolicyId() external view returns (uint256) {
+        return _policyIdCounter > 0 ? _policyIdCounter - 1 : 0;
+    }
 
-        usedRequestIds[requestId] = true;
-        vote.resolved = true;
+    function quote(uint256 coverageMask, address agent, uint256 amount) external view returns (uint256) {
+        return _quote(coverageMask, agent, amount);
+    }
 
-        uint256 timeoutCount = 0;
-        for (uint256 i = 0; i < vote.statuses.length; i++) {
-            if (vote.statuses[i] == 1) timeoutCount++;
-        }
+    function _quote(uint256 coverageMask, address agent, uint256 amount) internal view returns (uint256) {
+        uint256 penalty = penaltyScores[agent] == 0 ? DEFAULT_PENALTY_SCORE : penaltyScores[agent];
+        // Simplified pricing — API server uses full formula
+        return (amount * coverageMask * penalty / BPS) / 10;
+    }
 
-        if (timeoutCount >= 2) {
-            emit VoteResolved(requestId, 1, vote.policyId);
-            _triggerOraclePayout(vote.policyId);
+    function _collectPremium(address from, uint256 amount) internal {
+        if (paymentToken == address(0)) {
+            require(msg.value >= amount, "Zeus: insufficient premium");
+            if (msg.value > amount) {
+                payable(from).transfer(msg.value - amount);
+            }
         } else {
-            emit VoteResolved(requestId, 0, vote.policyId);
-            _rejectClaim(vote.policyId);
+            require(msg.value == 0, "Zeus: native not accepted");
+            IERC20(paymentToken).safeTransferFrom(from, address(this), amount);
         }
     }
 
-    function _triggerOraclePayout(uint256 policyId) internal {
-        Policy storage p = policies[policyId];
-        require(p.status == PolicyStatus.Active, "Policy not active");
-
-        uint256 amount  = p.amount;
-        address buyer   = p.buyer;
-
-        p.status = PolicyStatus.Claimed; // CEI
-
-        reserve.payClaim(policyId, buyer, amount);
-
-        emit PayoutExecuted(policyId, amount);
+    function _sendPayment(address payable to, uint256 amount) internal {
+        if (paymentToken == address(0)) {
+            to.transfer(amount);
+        } else {
+            IERC20(paymentToken).safeTransfer(to, amount);
+        }
     }
 
-    function _rejectClaim(uint256 policyId) internal {
-        Policy storage p = policies[policyId];
-        require(p.status == PolicyStatus.Active, "Policy not active");
-        p.status = PolicyStatus.Rejected;
-        emit ClaimRejected(policyId);
-    }
+    receive() external payable {}
 }

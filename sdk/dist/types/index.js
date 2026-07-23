@@ -1,4 +1,16 @@
 import { z } from "zod";
+/* ──────────────────────────── X Layer / OKX AI ──────────────────────────── */
+export const XLAYER_CHAIN_ID = 196;
+export const ALL_INCLUSIVE_MASK = 0x1f;
+export var CoverageType;
+(function (CoverageType) {
+    CoverageType[CoverageType["APIFailure"] = 0] = "APIFailure";
+    CoverageType[CoverageType["NetworkError"] = 1] = "NetworkError";
+    CoverageType[CoverageType["WalletLimit"] = 2] = "WalletLimit";
+    CoverageType[CoverageType["GasShortage"] = 3] = "GasShortage";
+    CoverageType[CoverageType["MCPError"] = 4] = "MCPError";
+    CoverageType[CoverageType["ArbitrationRisk"] = 5] = "ArbitrationRisk";
+})(CoverageType || (CoverageType = {}));
 /* ──────────────────────────── Networks ──────────────────────────── */
 export const NetworkSchema = z.enum([
     "mainnet",
@@ -143,15 +155,32 @@ export var AgreementStatus;
 })(AgreementStatus || (AgreementStatus = {}));
 /**
  * On-chain PolicyStatus enum (ZeusInsuranceV2).
- * Mirrors `enum PolicyStatus { Active, Claimed, Rejected, Expired }`.
+ * Updated for OKX AI / All-inclusive: Cancelled replaces Rejected.
  */
 export var PolicyStatus;
 (function (PolicyStatus) {
     PolicyStatus[PolicyStatus["Active"] = 0] = "Active";
     PolicyStatus[PolicyStatus["Claimed"] = 1] = "Claimed";
-    PolicyStatus[PolicyStatus["Rejected"] = 2] = "Rejected";
-    PolicyStatus[PolicyStatus["Expired"] = 3] = "Expired";
+    PolicyStatus[PolicyStatus["Expired"] = 2] = "Expired";
+    PolicyStatus[PolicyStatus["Cancelled"] = 3] = "Cancelled";
 })(PolicyStatus || (PolicyStatus = {}));
+/* ──────────────────────────── Escrow Types (OKX AI upgrade) ──────────────────────────── */
+export var EscrowType;
+(function (EscrowType) {
+    EscrowType[EscrowType["Classic"] = 0] = "Classic";
+    EscrowType[EscrowType["Conditional"] = 1] = "Conditional";
+    EscrowType[EscrowType["Recurring"] = 2] = "Recurring";
+    EscrowType[EscrowType["MultiSig"] = 3] = "MultiSig";
+})(EscrowType || (EscrowType = {}));
+export var EscrowStatus;
+(function (EscrowStatus) {
+    EscrowStatus[EscrowStatus["Pending"] = 0] = "Pending";
+    EscrowStatus[EscrowStatus["Active"] = 1] = "Active";
+    EscrowStatus[EscrowStatus["Released"] = 2] = "Released";
+    EscrowStatus[EscrowStatus["Refunded"] = 3] = "Refunded";
+    EscrowStatus[EscrowStatus["Disputed"] = 4] = "Disputed";
+    EscrowStatus[EscrowStatus["Expired"] = 5] = "Expired";
+})(EscrowStatus || (EscrowStatus = {}));
 /* ──────────────────────────── Error Classes ──────────────────────────── */
 export class ZeusError extends Error {
     code;

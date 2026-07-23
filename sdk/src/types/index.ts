@@ -1,6 +1,20 @@
 import { z } from "zod";
 import type { Signer, Provider } from "ethers"; // eslint-disable-line @typescript-eslint/no-unused-vars
 
+/* ──────────────────────────── X Layer / OKX AI ──────────────────────────── */
+
+export const XLAYER_CHAIN_ID = 196 as const;
+export const ALL_INCLUSIVE_MASK = 0x1f;
+
+export enum CoverageType {
+  APIFailure = 0,
+  NetworkError = 1,
+  WalletLimit = 2,
+  GasShortage = 3,
+  MCPError = 4,
+  ArbitrationRisk = 5,
+}
+
 /* ──────────────────────────── Networks ──────────────────────────── */
 
 export const NetworkSchema = z.enum([
@@ -188,13 +202,13 @@ export interface Agreement {
 
 /**
  * On-chain PolicyStatus enum (ZeusInsuranceV2).
- * Mirrors `enum PolicyStatus { Active, Claimed, Rejected, Expired }`.
+ * Updated for OKX AI / All-inclusive: Cancelled replaces Rejected.
  */
 export enum PolicyStatus {
-  Active   = 0,
-  Claimed  = 1,
-  Rejected = 2,
-  Expired  = 3,
+  Active    = 0,
+  Claimed   = 1,
+  Expired   = 2,
+  Cancelled = 3,
 }
 
 /**
@@ -217,25 +231,24 @@ export interface Observation {
 }
 
 export interface Policy {
-  /** Policy ID (mapping key in the contract). */
-  id: number;
   buyer: string;
   seller: string;
-  /** Coverage amount in USDC (6-decimal units). */
   amount: bigint;
-  /** Premium paid in USDC (6-decimal units). */
   premium: bigint;
-  /** Unix timestamp after which the buyer may claim a payout. */
-  retryDeadline: number;
-  maxRetries: number;
-  /** On-chain status enum value. */
+  timeout: bigint;
+  coverageMask: bigint;
   status: PolicyStatus;
-  /** Derived: status === PolicyStatus.Active */
-  isActive: boolean;
-  /** Derived: status === PolicyStatus.Claimed */
-  isPaidOut: boolean;
-  /** Derived: status === PolicyStatus.Expired */
-  isExpired: boolean;
+  metadata: string;
+}
+
+export interface ArbPolicy {
+  buyer: string;
+  amount: bigint;
+  premium: bigint;
+  caseId: string;
+  timeout: bigint;
+  status: number;
+  metadata: string;
 }
 
 export interface TransactionResult {
@@ -243,6 +256,118 @@ export interface TransactionResult {
   status: number;
   blockNumber: number;
   gasUsed: bigint;
+}
+
+/* ──────────────────────────── Escrow Types (OKX AI upgrade) ──────────────────────────── */
+
+export enum EscrowType {
+  Classic     = 0,
+  Conditional = 1,
+  Recurring   = 2,
+  MultiSig    = 3,
+}
+
+export enum EscrowStatus {
+  Pending   = 0,
+  Active    = 1,
+  Released  = 2,
+  Refunded  = 3,
+  Disputed  = 4,
+  Expired   = 5,
+}
+
+export interface EscrowAgreement {
+  buyer: string;
+  executor: string;
+  token: string;
+  amount: bigint;
+  timeout: bigint;
+  escrowType: EscrowType;
+  conditionHash: string;
+  interval: bigint;
+  requiredSignatures: bigint;
+  status: EscrowStatus;
+  createdAt: bigint;
+  lastReleasedAt: bigint;
+  signaturesCount: bigint;
+}
+
+/* ──────────────────────────── Request / Param Interfaces ──────────────────────────── */
+
+export interface CreatePolicyParams {
+  seller: string;
+  amount: bigint;
+  coverageMask: number;
+  timeoutSeconds: number;
+  metadata?: string;
+}
+
+export interface CreateAllInclusivePolicyParams {
+  seller: string;
+  amount: bigint;
+  timeoutSeconds: number;
+  metadata?: string;
+}
+
+export interface CreateEscrowAgreementParams {
+  executor: string;
+  amount: bigint;
+  timeoutSeconds: number;
+  escrowType: EscrowType;
+  conditionHash?: string;
+  intervalSeconds?: number;
+  signers?: string[];
+  requiredSignatures?: number;
+}
+
+export interface ErrorHistory {
+  agent: string;
+  errors: number;
+  total: number;
+  windowHours: number;
+}
+
+export interface PriceQuote {
+  basePremium: number;
+  penaltyScore: number;
+  finalPremium: number;
+  rejected: boolean;
+  retryAfterSeconds?: number;
+}
+
+export interface BuyPolicyRequest {
+  seller: string;
+  amount: string;
+  coverageMask: number;
+  timeoutSeconds: number;
+  metadata?: string;
+  agent?: string;
+}
+
+export interface BuyAllInclusiveRequest {
+  seller: string;
+  amount: string;
+  timeoutSeconds: number;
+  metadata?: string;
+  agent?: string;
+}
+
+export interface CreateEscrowRequest {
+  executor: string;
+  amount: string;
+  timeoutSeconds: number;
+  escrowType: EscrowType;
+  conditionHash?: string;
+  intervalSeconds?: number;
+  signers?: string[];
+  requiredSignatures?: number;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  retryAfterSeconds?: number;
 }
 
 /* ──────────────────────────── Error Classes ──────────────────────────── */

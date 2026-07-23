@@ -1,0 +1,1307 @@
+Скопируйте каждый файл в соответствующую папку в ветке feature/okx-ai-all-inclusive.
+
+1. contracts/contracts/ZeusInsuranceV2.sol
+solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract ZeusInsuranceV2 is AccessControl, Pausable, ReentrancyGuard {
+    using Counters for Counters.Counter;
+    using SafeERC20 for IERC20;
+
+    uint256 public constant XLAYER_CHAIN_ID = 196;
+    uint256 public constant ALL_INCLUSIVE_MASK = 0x1F;
+    uint256 public constant BPS = 10_000;
+    uint256 public constant DEFAULT_PENALTY_SCORE = 10_000;
+
+    bytes32 public constant INSURANCE_MANAGER_ROLE = keccak256("INSURANCE_MANAGER_ROLE");
+    bytes32 public constant CLAIM_EVALUATOR_ROLE = keccak256("CLAIM_EVALUATOR_ROLE");
+
+    enum CoverageType { APIFailure, NetworkError, WalletLimit, GasShortage, MCPError, ArbitrationRisk }
+    enum PolicyStatus { Active, Claimed, Expired, Cancelled }
+
+    struct Policy {
+        address buyer;
+        address seller;
+        uint256 amount;
+        uint256 premium;
+        uint256 timeout;
+        uint256 coverageMask;
+        PolicyStatus status;
+        string metadata;
+    }
+
+    Counters.Counter private _policyIdCounter;
+    mapping(uint256 => Policy) public policies;
+    mapping(address => uint256) public penaltyScores;
+    address public paymentToken;
+
+    event PolicyCreated(uint256 indexed policyId, address indexed buyer, address indexed seller, uint256 amount, uint256 premium, uint256 coverageMask, uint256 timeout, string metadata);
+    event PolicyClaimed(uint256 indexed policyId, address indexed buyer, uint256 payout);
+    event PolicyExpired(uint256 indexed policyId);
+    event PolicyCancelled(uint256 indexed policyId);
+    event PenaltyScoreUpdated(address indexed agent, uint256 oldScore, uint256 newScore);
+    event PaymentTokenUpdated(address oldToken, address newToken);
+
+    modifier onlyXLayer() {
+        require(block.chainid == XLAYER_CHAIN_ID, "Zeus: not X Layer");
+        _;
+    }
+
+    modifier policyActive(uint256 policyId) {
+        require(policies[policyId].status == PolicyStatus.Active, "Zeus: policy not active");
+        _;
+    }
+
+    constructor(address admin, address _paymentToken) {
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(INSURANCE_MANAGER_ROLE, admin);
+        _grantRole(CLAIM_EVALUATOR_ROLE, admin);
+        paymentToken = _paymentToken;
+    }
+
+    function pause() external onlyRole(INSURANCE_MANAGER_ROLE) { _pause(); }
+    function unpause() external onlyRole(INSURANCE_MANAGER_ROLE) { _unpause(); }
+
+    function setPaymentToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        emit PaymentTokenUpdated(paymentToken, token);
+        paymentToken = token;
+    }
+
+    function setPenaltyScore(address agent, uint256 scoreBps) external onlyRole(INSURANCE_MANAGER_ROLE) {
+        require(scoreBps >= BPS && scoreBps <= 3 * BPS, "Zeus: invalid score");
+        uint256 old = penaltyScores[agent];
+        penaltyScores[agent] = scoreBps;
+        emit PenaltyScoreUpdated(agent, old, scoreBps);
+    }
+
+    function buyPolicy(address seller, uint256 amount, uint256 coverageMask, uint256 timeoutSeconds, string calldata metadata)
+        external payable onlyXLayer whenNotPaused nonReentrant returns (uint256 policyId)
+    {
+        require(coverageMask != 0, "Zeus: empty coverage");
+        require((coverageMask & (1 << uint256(CoverageType.ArbitrationRisk))) == 0, "Zeus: arbitration is separate product");
+        require(amount > 0 && timeoutSeconds > 0, "Zeus: invalid params");
+
+        uint256 premium = _quote(coverageMask, msg.sender, amount);
+        _collectPremium(msg.sender, premium);
+
+        policyId = _policyIdCounter.current();
+        _policyIdCounter.increment();
+
+        policies[policyId] = Policy({
+            buyer: msg.sender,
+            seller: seller,
+            amount: amount,
+            premium: premium,
+            timeout: block.timestamp + timeoutSeconds,
+            coverageMask: coverageMask,
+            status: PolicyStatus.Active,
+            metadata: metadata
+        });
+
+        emit PolicyCreated(policyId, msg.sender, seller, amount, premium, coverageMask, timeoutSeconds, metadata);
+    }
+
+    function buyAllInclusivePolicy(address seller, uint256 amount, uint256 timeoutSeconds, string calldata metadata)
+        external payable onlyXLayer whenNotPaused nonReentrant returns (uint256)
+    {
+        return _buyInternal(seller, amount, ALL_INCLUSIVE_MASK, timeoutSeconds, metadata);
+    }
+
+    function _buyInternal(address seller, uint256 amount, uint256 coverageMask, uint256 timeoutSeconds, string calldata metadata)
+        internal returns (uint256 policyId)
+    {
+        uint256 premium = _quote(coverageMask, msg.sender, amount);
+        _collectPremium(msg.sender, premium);
+
+        policyId = _policyIdCounter.current();
+        _policyIdCounter.increment();
+
+        policies[policyId] = Policy({
+            buyer: msg.sender,
+            seller: seller,
+            amount: amount,
+            premium: premium,
+            timeout: block.timestamp + timeoutSeconds,
+            coverageMask: coverageMask,
+            status: PolicyStatus.Active,
+            metadata: metadata
+        });
+
+        emit PolicyCreated(policyId, msg.sender, seller, amount, premium, coverageMask, timeoutSeconds, metadata);
+    }
+
+    function claim(uint256 policyId, address payable to, uint256 payoutAmount)
+        external onlyRole(CLAIM_EVALUATOR_ROLE) policyActive(policyId) nonReentrant
+    {
+        Policy storage p = policies[policyId];
+        require(block.timestamp <= p.timeout, "Zeus: expired");
+        require(payoutAmount <= p.amount, "Zeus: payout>amount");
+
+        p.status = PolicyStatus.Claimed;
+        _sendPayment(to, payoutAmount);
+        emit PolicyClaimed(policyId, p.buyer, payoutAmount);
+    }
+
+    function expire(uint256 policyId) external policyActive(policyId) {
+        Policy storage p = policies[policyId];
+        require(block.timestamp > p.timeout, "Zeus: not expired yet");
+        p.status = PolicyStatus.Expired;
+        emit PolicyExpired(policyId);
+    }
+
+    function cancel(uint256 policyId) external policyActive(policyId) {
+        Policy storage p = policies[policyId];
+        require(msg.sender == p.buyer, "Zeus: not buyer");
+        p.status = PolicyStatus.Cancelled;
+        emit PolicyCancelled(policyId);
+    }
+
+    function getPolicy(uint256 policyId) external view returns (Policy memory) {
+        return policies[policyId];
+    }
+
+    function hasCoverage(uint256 policyId, CoverageType ct) external view returns (bool) {
+        return (policies[policyId].coverageMask & (1 << uint256(ct))) != 0;
+    }
+
+    function currentPolicyId() external view returns (uint256) {
+        return _policyIdCounter.current();
+    }
+
+    function quote(uint256 coverageMask, address agent, uint256 amount) external view returns (uint256) {
+        return _quote(coverageMask, agent, amount);
+    }
+
+    function _quote(uint256 coverageMask, address agent, uint256 amount) internal view returns (uint256) {
+        uint256 penalty = penaltyScores[agent] == 0 ? DEFAULT_PENALTY_SCORE : penaltyScores[agent];
+        // Simplified pricing — API server uses full formula
+        return (amount * coverageMask * penalty / BPS) / 10;
+    }
+
+    function _collectPremium(address from, uint256 amount) internal {
+        if (paymentToken == address(0)) {
+            require(msg.value >= amount, "Zeus: insufficient premium");
+            if (msg.value > amount) {
+                payable(from).transfer(msg.value - amount);
+            }
+        } else {
+            require(msg.value == 0, "Zeus: native not accepted");
+            IERC20(paymentToken).safeTransferFrom(from, address(this), amount);
+        }
+    }
+
+    function _sendPayment(address payable to, uint256 amount) internal {
+        if (paymentToken == address(0)) {
+            to.transfer(amount);
+        } else {
+            IERC20(paymentToken).safeTransfer(to, amount);
+        }
+    }
+
+    receive() external payable {}
+}
+2. contracts/contracts/ZeusEscrowBOT.sol
+solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
+contract ZeusEscrowBOT is AccessControl, Pausable, ReentrancyGuard {
+    using Counters for Counters.Counter;
+    using SafeERC20 for IERC20;
+    using ECDSA for bytes32;
+
+    enum EscrowType { Classic, Conditional, Recurring, MultiSig }
+    enum EscrowStatus { Pending, Active, Released, Refunded, Disputed, Expired }
+
+    struct EscrowAgreement {
+        address buyer;
+        address executor;
+        address token;
+        uint256 amount;
+        uint256 timeout;
+        EscrowType escrowType;
+        bytes32 conditionHash;
+        uint256 interval;
+        uint256 requiredSignatures;
+        EscrowStatus status;
+        uint256 createdAt;
+        uint256 lastReleasedAt;
+        uint256 signaturesCount;
+    }
+
+    mapping(uint256 => EscrowAgreement) public escrows;
+    mapping(uint256 => mapping(address => bool)) public hasSigned;
+    mapping(uint256 => address[]) public signersList;
+
+    Counters.Counter private _escrowIdCounter;
+    address public paymentToken;
+
+    bytes32 public constant ESCROW_MANAGER_ROLE = keccak256("ESCROW_MANAGER_ROLE");
+    bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
+
+    event EscrowCreated(uint256 indexed escrowId, address indexed buyer, address indexed executor, EscrowType escrowType, uint256 amount);
+    event EscrowReleased(uint256 indexed escrowId, uint256 amount);
+    event EscrowRefunded(uint256 indexed escrowId);
+    event EscrowDisputed(uint256 indexed escrowId, address indexed by);
+    event EscrowExpired(uint256 indexed escrowId);
+    event MultiSigVote(uint256 indexed escrowId, address indexed signer, uint256 count);
+    event ConditionResolved(uint256 indexed escrowId, bool fulfilled);
+
+    constructor(address admin, address _paymentToken) {
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(ESCROW_MANAGER_ROLE, admin);
+        _grantRole(ORACLE_ROLE, admin);
+        paymentToken = _paymentToken;
+    }
+
+    function pause() external onlyRole(ESCROW_MANAGER_ROLE) { _pause(); }
+    function unpause() external onlyRole(ESCROW_MANAGER_ROLE) { _unpause(); }
+
+    function createClassicEscrow(address executor, uint256 amount, uint256 timeoutSeconds)
+        external payable whenNotPaused nonReentrant returns (uint256 escrowId)
+    {
+        require(executor != address(0) && amount > 0 && timeoutSeconds > 0, "ZE: invalid params");
+        escrowId = _mintEscrow(msg.sender, executor, paymentToken, amount, timeoutSeconds, EscrowType.Classic);
+        _lockFunds(msg.sender, paymentToken, amount);
+        emit EscrowCreated(escrowId, msg.sender, executor, EscrowType.Classic, amount);
+    }
+
+    function createConditionalEscrow(address executor, uint256 amount, uint256 timeoutSeconds, bytes32 conditionHash)
+        external payable whenNotPaused nonReentrant returns (uint256 escrowId)
+    {
+        require(conditionHash != bytes32(0), "ZE: empty condition");
+        escrowId = _mintEscrow(msg.sender, executor, paymentToken, amount, timeoutSeconds, EscrowType.Conditional);
+        escrows[escrowId].conditionHash = conditionHash;
+        _lockFunds(msg.sender, paymentToken, amount);
+        emit EscrowCreated(escrowId, msg.sender, executor, EscrowType.Conditional, amount);
+    }
+
+    function createRecurringEscrow(address executor, uint256 amount, uint256 timeoutSeconds, uint256 intervalSeconds)
+        external payable whenNotPaused nonReentrant returns (uint256 escrowId)
+    {
+        require(intervalSeconds > 0, "ZE: zero interval");
+        escrowId = _mintEscrow(msg.sender, executor, paymentToken, amount, timeoutSeconds, EscrowType.Recurring);
+        escrows[escrowId].interval = intervalSeconds;
+        escrows[escrowId].lastReleasedAt = block.timestamp;
+        _lockFunds(msg.sender, paymentToken, amount);
+        emit EscrowCreated(escrowId, msg.sender, executor, EscrowType.Recurring, amount);
+    }
+
+    function createMultiSigEscrow(address executor, uint256 amount, uint256 timeoutSeconds, address[] calldata _signers, uint256 requiredSignatures)
+        external payable whenNotPaused nonReentrant returns (uint256 escrowId)
+    {
+        require(_signers.length > 0 && requiredSignatures > 0, "ZE: bad signers");
+        require(requiredSignatures <= _signers.length, "ZE: required>signers");
+        escrowId = _mintEscrow(msg.sender, executor, paymentToken, amount, timeoutSeconds, EscrowType.MultiSig);
+        escrows[escrowId].requiredSignatures = requiredSignatures;
+        for (uint256 i = 0; i < _signers.length; i++) {
+            signersList[escrowId].push(_signers[i]);
+        }
+        _lockFunds(msg.sender, paymentToken, amount);
+        emit EscrowCreated(escrowId, msg.sender, executor, EscrowType.MultiSig, amount);
+    }
+
+    function release(uint256 escrowId) external nonReentrant {
+        EscrowAgreement storage e = escrows[escrowId];
+        require(e.status == EscrowStatus.Active || e.status == EscrowStatus.Pending, "ZE: not releasable");
+        require(block.timestamp <= e.timeout, "ZE: expired");
+
+        if (e.escrowType == EscrowType.Classic) {
+            _finalizeRelease(escrowId, e.amount);
+        } else if (e.escrowType == EscrowType.Conditional) {
+            require(hasRole(ORACLE_ROLE, msg.sender) || msg.sender == e.buyer, "ZE: not authorized");
+            _finalizeRelease(escrowId, e.amount);
+        } else if (e.escrowType == EscrowType.Recurring) {
+            require(msg.sender == e.executor, "ZE: only executor");
+            require(block.timestamp >= e.lastReleasedAt + e.interval, "ZE: too early");
+            e.lastReleasedAt = block.timestamp;
+            _sendToken(e.executor, e.token, e.amount);
+            emit EscrowReleased(escrowId, e.amount);
+        } else if (e.escrowType == EscrowType.MultiSig) {
+            require(e.signaturesCount >= e.requiredSignatures, "ZE: not enough sigs");
+            _finalizeRelease(escrowId, e.amount);
+        }
+    }
+
+    function resolveCondition(uint256 escrowId, bool fulfilled, bytes32 expectedHash) external onlyRole(ORACLE_ROLE) {
+        EscrowAgreement storage e = escrows[escrowId];
+        require(e.escrowType == EscrowType.Conditional, "ZE: not conditional");
+        require(e.conditionHash == expectedHash, "ZE: hash mismatch");
+        emit ConditionResolved(escrowId, fulfilled);
+        if (fulfilled) {
+            _finalizeRelease(escrowId, e.amount);
+        } else {
+            _refund(escrowId);
+        }
+    }
+
+    function sign(uint256 escrowId) external nonReentrant {
+        EscrowAgreement storage e = escrows[escrowId];
+        require(e.escrowType == EscrowType.MultiSig, "ZE: not multisig");
+        require(!hasSigned[escrowId][msg.sender], "ZE: already signed");
+        bool isSigner;
+        address[] storage sigs = signersList[escrowId];
+        for (uint256 i = 0; i < sigs.length; i++) {
+            if (sigs[i] == msg.sender) { isSigner = true; break; }
+        }
+        require(isSigner, "ZE: not signer");
+        hasSigned[escrowId][msg.sender] = true;
+        e.signaturesCount += 1;
+        emit MultiSigVote(escrowId, msg.sender, e.signaturesCount);
+    }
+
+    function refund(uint256 escrowId) external nonReentrant {
+        EscrowAgreement storage e = escrows[escrowId];
+        require(msg.sender == e.buyer, "ZE: not buyer");
+        require(block.timestamp > e.timeout, "ZE: not expired");
+        _refund(escrowId);
+    }
+
+    function dispute(uint256 escrowId) external {
+        EscrowAgreement storage e = escrows[escrowId];
+        require(msg.sender == e.buyer || msg.sender == e.executor, "ZE: not party");
+        e.status = EscrowStatus.Disputed;
+        emit EscrowDisputed(escrowId, msg.sender);
+    }
+
+    function getEscrow(uint256 escrowId) external view returns (EscrowAgreement memory) {
+        return escrows[escrowId];
+    }
+
+    function getSigners(uint256 escrowId) external view returns (address[] memory) {
+        return signersList[escrowId];
+    }
+
+    function currentEscrowId() external view returns (uint256) {
+        return _escrowIdCounter.current();
+    }
+
+    function _mintEscrow(address buyer, address executor, address token, uint256 amount, uint256 timeout, EscrowType escrowType)
+        internal returns (uint256 escrowId)
+    {
+        escrowId = _escrowIdCounter.current();
+        _escrowIdCounter.increment();
+
+        escrows[escrowId] = EscrowAgreement({
+            buyer: buyer,
+            executor: executor,
+            token: token,
+            amount: amount,
+            timeout: block.timestamp + timeout,
+            escrowType: escrowType,
+            conditionHash: bytes32(0),
+            interval: 0,
+            requiredSignatures: 0,
+            status: EscrowStatus.Active,
+            createdAt: block.timestamp,
+            lastReleasedAt: block.timestamp,
+            signaturesCount: 0
+        });
+        return escrowId;
+    }
+
+    function _lockFunds(address from, address token, uint256 amount) internal {
+        if (token == address(0)) {
+            require(msg.value >= amount, "ZE: insufficient native");
+            if (msg.value > amount) {
+                payable(from).transfer(msg.value - amount);
+            }
+        } else {
+            require(msg.value == 0, "ZE: native not accepted");
+            IERC20(token).safeTransferFrom(from, address(this), amount);
+        }
+    }
+
+    function _finalizeRelease(uint256 escrowId, uint256 amount) internal {
+        EscrowAgreement storage e = escrows[escrowId];
+        e.status = EscrowStatus.Released;
+        _sendToken(e.executor, e.token, amount);
+        emit EscrowReleased(escrowId, amount);
+    }
+
+    function _refund(uint256 escrowId) internal {
+        EscrowAgreement storage e = escrows[escrowId];
+        e.status = EscrowStatus.Refunded;
+        _sendToken(e.buyer, e.token, e.amount);
+        emit EscrowRefunded(escrowId);
+    }
+
+    function _sendToken(address to, address token, uint256 amount) internal {
+        if (token == address(0)) {
+            payable(to).transfer(amount);
+        } else {
+            IERC20(token).safeTransfer(to, amount);
+        }
+    }
+
+    receive() external payable {}
+}
+3. contracts/contracts/ZeusArbitrationRisk.sol
+solidity
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract ZeusArbitrationRisk is AccessControl, Pausable, ReentrancyGuard {
+    using Counters for Counters.Counter;
+    using SafeERC20 for IERC20;
+
+    uint256 public constant XLAYER_CHAIN_ID = 196;
+    uint256 public constant BPS = 10_000;
+    uint256 public constant ARBITRATION_RATE_BPS = 800;
+
+    bytes32 public constant ARBITRATION_EVALUATOR_ROLE = keccak256("ARBITRATION_EVALUATOR_ROLE");
+
+    enum ArbStatus { Active, Resolved, Paid, Expired }
+
+    struct ArbPolicy {
+        address buyer;
+        uint256 amount;
+        uint256 premium;
+        bytes32 caseId;
+        uint256 timeout;
+        ArbStatus status;
+        string metadata;
+    }
+
+    Counters.Counter private _arbIdCounter;
+    mapping(uint256 => ArbPolicy) public arbPolicies;
+    address public paymentToken;
+
+    event ArbitrationPolicyPurchased(uint256 indexed policyId, address indexed buyer, bytes32 indexed caseId, uint256 amount, uint256 premium, uint256 timeout);
+    event ArbitrationPayout(uint256 indexed policyId, address indexed buyer, uint256 payout);
+    event ArbitrationPolicyExpired(uint256 indexed policyId);
+
+    constructor(address admin, address _paymentToken) {
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(ARBITRATION_EVALUATOR_ROLE, admin);
+        paymentToken = _paymentToken;
+    }
+
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) { _pause(); }
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) { _unpause(); }
+
+    function buyArbitrationInsurance(uint256 amount, bytes32 caseId, uint256 timeoutSeconds)
+        external payable whenNotPaused nonReentrant returns (uint256 policyId)
+    {
+        require(block.chainid == XLAYER_CHAIN_ID, "ZAR: only X Layer");
+        require(amount > 0 && caseId != bytes32(0) && timeoutSeconds > 0, "ZAR: invalid params");
+
+        uint256 premium = (amount * ARBITRATION_RATE_BPS) / BPS;
+        _collect(msg.sender, premium);
+
+        policyId = _arbIdCounter.current();
+        _arbIdCounter.increment();
+
+        arbPolicies[policyId] = ArbPolicy({
+            buyer: msg.sender,
+            amount: amount,
+            premium: premium,
+            caseId: caseId,
+            timeout: block.timestamp + timeoutSeconds,
+            status: ArbStatus.Active,
+            metadata: ""
+        });
+
+        emit ArbitrationPolicyPurchased(policyId, msg.sender, caseId, amount, premium, timeoutSeconds);
+    }
+
+    function claimArbitrationPayout(uint256 policyId) external onlyRole(ARBITRATION_EVALUATOR_ROLE) nonReentrant {
+        ArbPolicy storage p = arbPolicies[policyId];
+        require(p.status == ArbStatus.Active, "ZAR: not active");
+        require(block.timestamp <= p.timeout, "ZAR: expired");
+        p.status = ArbStatus.Paid;
+        _send(payable(p.buyer), p.amount);
+        emit ArbitrationPayout(policyId, p.buyer, p.amount);
+    }
+
+    function expire(uint256 policyId) external {
+        ArbPolicy storage p = arbPolicies[policyId];
+        require(p.status == ArbStatus.Active, "ZAR: not active");
+        require(block.timestamp > p.timeout, "ZAR: not expired");
+        p.status = ArbStatus.Expired;
+        emit ArbitrationPolicyExpired(policyId);
+    }
+
+    function getPolicy(uint256 policyId) external view returns (ArbPolicy memory) {
+        return arbPolicies[policyId];
+    }
+
+    function quote(uint256 amount) external pure returns (uint256) {
+        return (amount * ARBITRATION_RATE_BPS) / BPS;
+    }
+
+    function _collect(address from, uint256 value) internal {
+        if (paymentToken == address(0)) {
+            require(msg.value >= value, "ZAR: insufficient premium");
+            if (msg.value > value) {
+                payable(from).transfer(msg.value - value);
+            }
+        } else {
+            require(msg.value == 0, "ZAR: no native expected");
+            IERC20(paymentToken).safeTransferFrom(from, address(this), value);
+        }
+    }
+
+    function _send(address payable to, uint256 value) internal {
+        if (paymentToken == address(0)) {
+            to.transfer(value);
+        } else {
+            IERC20(paymentToken).safeTransfer(to, value);
+        }
+    }
+
+    receive() external payable {}
+}
+4. sdk/src/types/index.ts (обновлённый)
+typescript
+export const XLAYER_CHAIN_ID = 196 as const;
+
+export enum CoverageType {
+  APIFailure = 0,
+  NetworkError = 1,
+  WalletLimit = 2,
+  GasShortage = 3,
+  MCPError = 4,
+  ArbitrationRisk = 5,
+}
+
+export const ALL_INCLUSIVE_MASK = 0x1f;
+
+export enum PolicyStatus {
+  Active = 0,
+  Claimed = 1,
+  Expired = 2,
+  Cancelled = 3,
+}
+
+export enum EscrowType {
+  Classic = 0,
+  Conditional = 1,
+  Recurring = 2,
+  MultiSig = 3,
+}
+
+export enum EscrowStatus {
+  Pending = 0,
+  Active = 1,
+  Released = 2,
+  Refunded = 3,
+  Disputed = 4,
+  Expired = 5,
+}
+
+export interface Policy {
+  buyer: string;
+  seller: string;
+  amount: bigint;
+  premium: bigint;
+  timeout: bigint;
+  coverageMask: bigint;
+  status: PolicyStatus;
+  metadata: string;
+}
+
+export interface ArbPolicy {
+  buyer: string;
+  amount: bigint;
+  premium: bigint;
+  caseId: string;
+  timeout: bigint;
+  status: number;
+  metadata: string;
+}
+
+export interface EscrowAgreement {
+  buyer: string;
+  executor: string;
+  token: string;
+  amount: bigint;
+  timeout: bigint;
+  escrowType: EscrowType;
+  conditionHash: string;
+  interval: bigint;
+  requiredSignatures: bigint;
+  status: EscrowStatus;
+  createdAt: bigint;
+  lastReleasedAt: bigint;
+  signaturesCount: bigint;
+}
+
+export interface CreatePolicyParams {
+  seller: string;
+  amount: bigint;
+  coverageMask: number;
+  timeoutSeconds: number;
+  metadata?: string;
+}
+
+export interface CreateAllInclusivePolicyParams {
+  seller: string;
+  amount: bigint;
+  timeoutSeconds: number;
+  metadata?: string;
+}
+
+export interface CreateEscrowAgreementParams {
+  executor: string;
+  amount: bigint;
+  timeoutSeconds: number;
+  escrowType: EscrowType;
+  conditionHash?: string;
+  intervalSeconds?: number;
+  signers?: string[];
+  requiredSignatures?: number;
+}
+
+export interface ErrorHistory {
+  agent: string;
+  errors: number;
+  total: number;
+  windowHours: number;
+}
+
+export interface PriceQuote {
+  basePremium: number;
+  penaltyScore: number;
+  finalPremium: number;
+  rejected: boolean;
+  retryAfterSeconds?: number;
+}
+
+export interface BuyPolicyRequest {
+  seller: string;
+  amount: string;
+  coverageMask: number;
+  timeoutSeconds: number;
+  metadata?: string;
+  agent?: string;
+}
+
+export interface BuyAllInclusiveRequest {
+  seller: string;
+  amount: string;
+  timeoutSeconds: number;
+  metadata?: string;
+  agent?: string;
+}
+
+export interface CreateEscrowRequest {
+  executor: string;
+  amount: string;
+  timeoutSeconds: number;
+  escrowType: EscrowType;
+  conditionHash?: string;
+  intervalSeconds?: number;
+  signers?: string[];
+  requiredSignatures?: number;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  retryAfterSeconds?: number;
+}
+5. sdk/src/core/insurance.ts
+typescript
+import { ethers, Contract, Signer, BigNumberish } from "ethers";
+import { XLAYER_CHAIN_ID, ALL_INCLUSIVE_MASK, CoverageType, Policy, ArbPolicy, CreatePolicyParams, CreateAllInclusivePolicyParams } from "../types";
+
+export interface InsuranceClientConfig {
+  rpcUrl: string;
+  signer?: Signer;
+  insuranceV2Address: string;
+  arbitrationAddress: string;
+}
+
+export class InsuranceClient {
+  private readonly provider: ethers.JsonRpcProvider;
+  private readonly signer?: Signer;
+  private readonly insurance: Contract;
+  private readonly arbitration: Contract;
+
+  constructor(private readonly cfg: InsuranceClientConfig) {
+    this.provider = new ethers.JsonRpcProvider(cfg.rpcUrl);
+    this.signer = cfg.signer;
+    this.insurance = new Contract(cfg.insuranceV2Address, [
+      "function buyPolicy(address,uint256,uint256,uint256,string) payable",
+      "function buyAllInclusivePolicy(address,uint256,uint256,string) payable",
+      "function quote(uint256,address,uint256) view",
+      "function getPolicy(uint256) view",
+      "function setPenaltyScore(address,uint256)",
+    ], this.signer ?? this.provider);
+    this.arbitration = new Contract(cfg.arbitrationAddress, [
+      "function buyArbitrationInsurance(uint256,bytes32,uint256) payable",
+      "function quote(uint256) view",
+      "function getPolicy(uint256) view",
+    ], this.signer ?? this.provider);
+  }
+
+  public async assertXLayer(): Promise<void> {
+    const net = await this.provider.getNetwork();
+    if (Number(net.chainId) !== XLAYER_CHAIN_ID) {
+      throw new Error(`Expected X Layer (chainId ${XLAYER_CHAIN_ID}), got ${net.chainId}`);
+    }
+  }
+
+  public async quote(coverageMask: number, agent: string, amount: BigNumberish): Promise<bigint> {
+    return BigInt(await this.insurance.quote.staticCall(coverageMask, agent, amount));
+  }
+
+  public async createPolicy(params: CreatePolicyParams): Promise<bigint> {
+    await this.assertXLayer();
+    if (!this.signer) throw new Error("Signer required to create policy");
+    const premium = await this.quote(params.coverageMask, await this.signer.getAddress(), params.amount);
+    const tx = await this.insurance.buyPolicy(
+      params.seller,
+      params.amount,
+      params.coverageMask,
+      params.timeoutSeconds,
+      params.metadata ?? "",
+      { value: premium }
+    );
+    const receipt = await tx.wait();
+    const evt = receipt.logs
+      .map((log: any) => {
+        try { return this.insurance.interface.parseLog(log); } catch { return null; }
+      })
+      .find((e: any) => e && e.name === "PolicyCreated");
+    if (!evt) throw new Error("PolicyCreated event not found");
+    return BigInt(evt.args.policyId);
+  }
+
+  public async createAllInclusivePolicy(params: CreateAllInclusivePolicyParams): Promise<bigint> {
+    await this.assertXLayer();
+    if (!this.signer) throw new Error("Signer required");
+    const premium = await this.quote(ALL_INCLUSIVE_MASK, await this.signer.getAddress(), params.amount);
+    const tx = await this.insurance.buyAllInclusivePolicy(
+      params.seller,
+      params.amount,
+      params.timeoutSeconds,
+      params.metadata ?? "",
+      { value: premium }
+    );
+    const receipt = await tx.wait();
+    const evt = receipt.logs
+      .map((log: any) => {
+        try { return this.insurance.interface.parseLog(log); } catch { return null; }
+      })
+      .find((e: any) => e && e.name === "PolicyCreated");
+    if (!evt) throw new Error("PolicyCreated event not found");
+    return BigInt(evt.args.policyId);
+  }
+
+  public async buyArbitrationInsurance(amount: BigNumberish, caseId: string, timeoutSeconds: number): Promise<bigint> {
+    await this.assertXLayer();
+    if (!this.signer) throw new Error("Signer required");
+    const premium = BigInt(await this.arbitration.quote.staticCall(amount));
+    const tx = await this.arbitration.buyArbitrationInsurance(amount, caseId, timeoutSeconds, { value: premium });
+    const receipt = await tx.wait();
+    const evt = receipt.logs
+      .map((log: any) => {
+        try { return this.arbitration.interface.parseLog(log); } catch { return null; }
+      })
+      .find((e: any) => e && e.name === "ArbitrationPolicyPurchased");
+    if (!evt) throw new Error("ArbitrationPolicyPurchased event not found");
+    return BigInt(evt.args.policyId);
+  }
+
+  public async getPolicy(policyId: BigNumberish): Promise<Policy> {
+    const raw = await this.insurance.getPolicy(policyId);
+    return {
+      buyer: raw[0],
+      seller: raw[1],
+      amount: BigInt(raw[2]),
+      premium: BigInt(raw[3]),
+      timeout: BigInt(raw[4]),
+      coverageMask: BigInt(raw[5]),
+      status: Number(raw[6]),
+      metadata: raw[7],
+    };
+  }
+
+  public static buildMask(types: CoverageType[]): number {
+    return types.reduce((acc, t) => acc | (1 << t), 0);
+  }
+
+  public static hasCoverage(mask: number, type: CoverageType): boolean {
+    return (mask & (1 << type)) !== 0;
+  }
+
+  public async getArbitrationPolicy(policyId: BigNumberish): Promise<ArbPolicy> {
+    const raw = await this.arbitration.getPolicy(policyId);
+    return {
+      buyer: raw[0],
+      amount: BigInt(raw[1]),
+      premium: BigInt(raw[2]),
+      caseId: raw[3],
+      timeout: BigInt(raw[4]),
+      status: Number(raw[5]),
+      metadata: raw[6],
+    };
+  }
+}
+
+export default InsuranceClient;
+6. sdk/src/core/escrow.ts
+typescript
+import { ethers, Contract, Signer, BigNumberish } from "ethers";
+import { XLAYER_CHAIN_ID, EscrowType, EscrowStatus, EscrowAgreement, CreateEscrowAgreementParams } from "../types";
+
+export interface EscrowClientConfig {
+  rpcUrl: string;
+  signer?: Signer;
+  escrowAddress: string;
+}
+
+export class EscrowClient {
+  private readonly provider: ethers.JsonRpcProvider;
+  private readonly signer?: Signer;
+  private readonly escrow: Contract;
+
+  constructor(private readonly cfg: EscrowClientConfig) {
+    this.provider = new ethers.JsonRpcProvider(cfg.rpcUrl);
+    this.signer = cfg.signer;
+    this.escrow = new Contract(cfg.escrowAddress, [
+      "function createClassicEscrow(address,uint256,uint256) payable",
+      "function createConditionalEscrow(address,uint256,uint256,bytes32) payable",
+      "function createRecurringEscrow(address,uint256,uint256,uint256) payable",
+      "function createMultiSigEscrow(address,uint256,uint256,address[],uint256) payable",
+      "function release(uint256)",
+      "function refund(uint256)",
+      "function sign(uint256)",
+      "function dispute(uint256)",
+      "function getEscrow(uint256) view",
+      "function getSigners(uint256) view",
+      "function currentEscrowId() view",
+    ], this.signer ?? this.provider);
+  }
+
+  public async assertXLayer(): Promise<void> {
+    const net = await this.provider.getNetwork();
+    if (Number(net.chainId) !== XLAYER_CHAIN_ID) {
+      throw new Error(`Expected X Layer (${XLAYER_CHAIN_ID}), got ${net.chainId}`);
+    }
+  }
+
+  public async createEscrowAgreement(params: CreateEscrowAgreementParams): Promise<bigint> {
+    await this.assertXLayer();
+    if (!this.signer) throw new Error("Signer required");
+    const amount = BigInt(params.amount);
+    let tx: ethers.ContractTransaction;
+
+    switch (params.escrowType) {
+      case EscrowType.Classic:
+        tx = await this.escrow.createClassicEscrow(params.executor, amount, params.timeoutSeconds, { value: amount });
+        break;
+      case EscrowType.Conditional:
+        if (!params.conditionHash) throw new Error("conditionHash required for Conditional escrow");
+        tx = await this.escrow.createConditionalEscrow(
+          params.executor,
+          amount,
+          params.timeoutSeconds,
+          params.conditionHash,
+          { value: amount }
+        );
+        break;
+      case EscrowType.Recurring:
+        if (!params.intervalSeconds) throw new Error("intervalSeconds required for Recurring escrow");
+        tx = await this.escrow.createRecurringEscrow(
+          params.executor,
+          amount,
+          params.timeoutSeconds,
+          params.intervalSeconds,
+          { value: amount }
+        );
+        break;
+      case EscrowType.MultiSig:
+        if (!params.signers?.length || !params.requiredSignatures) {
+          throw new Error("signers and requiredSignatures required for MultiSig escrow");
+        }
+        tx = await this.escrow.createMultiSigEscrow(
+          params.executor,
+          amount,
+          params.timeoutSeconds,
+          params.signers,
+          params.requiredSignatures,
+          { value: amount }
+        );
+        break;
+      default:
+        throw new Error(`Unknown escrow type ${params.escrowType}`);
+    }
+
+    const receipt = await tx.wait();
+    const evt = receipt.logs
+      .map((log: any) => {
+        try { return this.escrow.interface.parseLog(log); } catch { return null; }
+      })
+      .find((e: any) => e && e.name === "EscrowCreated");
+    if (!evt) throw new Error("EscrowCreated event not found");
+    return BigInt(evt.args.escrowId);
+  }
+
+  public async release(escrowId: BigNumberish): Promise<void> {
+    const tx = await this.escrow.release(escrowId);
+    await tx.wait();
+  }
+
+  public async refund(escrowId: BigNumberish): Promise<void> {
+    const tx = await this.escrow.refund(escrowId);
+    await tx.wait();
+  }
+
+  public async sign(escrowId: BigNumberish): Promise<void> {
+    const tx = await this.escrow.sign(escrowId);
+    await tx.wait();
+  }
+
+  public async dispute(escrowId: BigNumberish): Promise<void> {
+    const tx = await this.escrow.dispute(escrowId);
+    await tx.wait();
+  }
+
+  public async getEscrow(escrowId: BigNumberish): Promise<EscrowAgreement> {
+    const raw = await this.escrow.getEscrow(escrowId);
+    return {
+      buyer: raw[0],
+      executor: raw[1],
+      token: raw[2],
+      amount: BigInt(raw[3]),
+      timeout: BigInt(raw[4]),
+      escrowType: Number(raw[5]) as EscrowType,
+      conditionHash: raw[6],
+      interval: BigInt(raw[7]),
+      requiredSignatures: BigInt(raw[8]),
+      status: Number(raw[9]) as EscrowStatus,
+      createdAt: BigInt(raw[10]),
+      lastReleasedAt: BigInt(raw[11]),
+      signaturesCount: BigInt(raw[12]),
+    };
+  }
+
+  public async getSigners(escrowId: BigNumberish): Promise<string[]> {
+    return await this.escrow.getSigners(escrowId);
+  }
+}
+
+export default EscrowClient;
+7. api-server/src/services/pricing.ts
+typescript
+import { ErrorHistory, PriceQuote } from "../../../sdk/src/types";
+
+export interface RiskParam {
+  rate: number;
+  probability: number;
+}
+
+export const RISK_TABLE: Record<string, RiskParam> = {
+  APIFailure:   { rate: 0.15, probability: 0.40 },
+  NetworkError: { rate: 0.10, probability: 0.30 },
+  WalletLimit:  { rate: 0.05, probability: 0.10 },
+  GasShortage:  { rate: 0.03, probability: 0.10 },
+  MCPError:     { rate: 0.12, probability: 0.10 },
+};
+
+export const DAILY_ERROR_SOFT_THRESHOLD = 3;
+export const DAILY_ERROR_HARD_THRESHOLD = 5;
+export const PER_ERROR_PENALTY_BPS = 1000;
+
+export function calculatePenaltyScore(errorHistory: ErrorHistory): number {
+  if (errorHistory.total === 0) return 1.0;
+  const errorRate = errorHistory.errors / errorHistory.total;
+
+  let multiplier: number;
+  if (errorRate > 0.30) multiplier = 2.0;
+  else if (errorRate > 0.15) multiplier = 1.5;
+  else multiplier = 1.0;
+
+  if (errorHistory.windowHours <= 24) {
+    if (errorHistory.errors > DAILY_ERROR_HARD_THRESHOLD) {
+      multiplier *= 1 + (DAILY_ERROR_HARD_THRESHOLD * PER_ERROR_PENALTY_BPS) / 10_000;
+    } else if (errorHistory.errors > DAILY_ERROR_SOFT_THRESHOLD) {
+      const extra = errorHistory.errors - DAILY_ERROR_SOFT_THRESHOLD;
+      multiplier *= 1 + (extra * PER_ERROR_PENALTY_BPS) / 10_000;
+    }
+  }
+  return Math.round(multiplier * 100) / 100;
+}
+
+export function calculateAllInclusiveBasePremium(risks: RiskParam[] = Object.values(RISK_TABLE)): number {
+  if (risks.length === 0) return 0;
+  let sumWeighted = 0;
+  let maxWeighted = 0;
+  let maxRate = 0;
+  for (const r of risks) {
+    const weighted = r.rate * r.probability;
+    sumWeighted += weighted;
+    if (weighted > maxWeighted) maxWeighted = weighted;
+    if (r.rate > maxRate) maxRate = r.rate;
+  }
+  return Math.round((sumWeighted - maxWeighted + maxRate) * 1e6) / 1e6;
+}
+
+export function quoteAllInclusive(amount: bigint, errorHistory: ErrorHistory | null): PriceQuote {
+  const base = calculateAllInclusiveBasePremium();
+
+  if (errorHistory && errorHistory.errors > DAILY_ERROR_HARD_THRESHOLD && errorHistory.windowHours <= 24) {
+    return {
+      basePremium: Number(amount) * base,
+      penaltyScore: 0,
+      finalPremium: 0,
+      rejected: true,
+      retryAfterSeconds: 24 * 3600,
+    };
+  }
+
+  const penalty = errorHistory ? calculatePenaltyScore(errorHistory) : 1.0;
+  const finalPremium = Number(amount) * base * penalty;
+  return {
+    basePremium: Number(amount) * base,
+    penaltyScore: penalty,
+    finalPremium,
+    rejected: false,
+  };
+}
+
+export function quoteArbitration(amount: bigint): bigint {
+  return (amount * 800n) / 10_000n;
+}
+8. api-server/src/routes/insurance.ts и escrow.ts — см. в предыдущем ответе (я их уже давал полностью).
+9. test/zeus.test.ts
+typescript
+import { expect } from "chai";
+import { ethers, network } from "hardhat";
+import { Signer, Contract } from "ethers";
+import { calculateAllInclusiveBasePremium, calculatePenaltyScore, RISK_TABLE } from "../api-server/src/services/pricing";
+
+describe("Zeus Insurance V2 + Escrow + Arbitration", () => {
+  let admin: Signer, buyer: Signer, seller: Signer, executor: Signer, agent: Signer, oracle: Signer;
+  let insurance: Contract, escrow: Contract, arbitration: Contract;
+
+  const XLAYER = 196;
+
+  before(async () => {
+    [admin, buyer, seller, executor, agent, oracle] = await ethers.getSigners();
+  });
+
+  const impersonateXLayer = async () => {
+    await network.provider.send("hardhat_setChainId", ["0xc4"]);
+  };
+  const restoreChainId = async () => {
+    await network.provider.send("hardhat_setChainId", ["0x7a69"]);
+  };
+
+  beforeEach(async () => {
+    const InsFactory = await ethers.getContractFactory("ZeusInsuranceV2");
+    insurance = await InsFactory.deploy(await admin.getAddress(), ethers.ZeroAddress);
+    await insurance.waitForDeployment();
+
+    const EscFactory = await ethers.getContractFactory("ZeusEscrowBOT");
+    escrow = await EscFactory.deploy(await admin.getAddress(), ethers.ZeroAddress);
+    await escrow.waitForDeployment();
+
+    const ArbFactory = await ethers.getContractFactory("ZeusArbitrationRisk");
+    arbitration = await ArbFactory.deploy(await admin.getAddress(), ethers.ZeroAddress);
+    await arbitration.waitForDeployment();
+
+    await insurance.grantRole(await insurance.CLAIM_EVALUATOR_ROLE(), await oracle.getAddress());
+    await escrow.grantRole(await escrow.ORACLE_ROLE(), await oracle.getAddress());
+    await arbitration.grantRole(await arbitration.ARBITRATION_EVALUATOR_ROLE(), await oracle.getAddress());
+  });
+
+  describe("Pricing service", () => {
+    it("computes All-inclusive base premium per spec", () => {
+      const base = calculateAllInclusiveBasePremium();
+      const vals = Object.values(RISK_TABLE);
+      const sumWeighted = vals.reduce((s, r) => s + r.rate * r.probability, 0);
+      const maxWeighted = Math.max(...vals.map(r => r.rate * r.probability));
+      const maxRate = Math.max(...vals.map(r => r.rate));
+      const expected = Math.round((sumWeighted - maxWeighted + maxRate) * 1e6) / 1e6;
+      expect(base).to.equal(expected);
+      expect(base).to.be.greaterThan(0);
+    });
+
+    it("returns 1.0 penalty for clean agent", () => {
+      expect(calculatePenaltyScore({ agent: "0x", errors: 0, total: 100, windowHours: 24 })).to.equal(1.0);
+    });
+
+    it("returns 1.5 penalty for 16% error rate", () => {
+      expect(calculatePenaltyScore({ agent: "0x", errors: 16, total: 100, windowHours: 24 })).to.equal(1.5);
+    });
+
+    it("returns 2.0 penalty for 31% error rate", () => {
+      expect(calculatePenaltyScore({ agent: "0x", errors: 31, total: 100, windowHours: 24 })).to.equal(2.0);
+    });
+  });
+
+  describe("ZeusInsuranceV2", () => {
+    beforeEach(impersonateXLayer);
+    afterEach(restoreChainId);
+
+    it("rejects non-X-Layer", async () => {
+      await restoreChainId();
+      await expect(
+        insurance.connect(buyer).buyPolicy(await seller.getAddress(), 1000, 0x1, 3600, "")
+      ).to.be.revertedWith("Zeus: not X Layer");
+    });
+
+    it("buys an All-inclusive policy and emits event", async () => {
+      const amount = ethers.parseEther("1");
+      const quote = await insurance.quote(0x1F, await buyer.getAddress(), amount);
+      const tx = insurance.connect(buyer).buyAllInclusivePolicy(
+        await seller.getAddress(), amount, 3600, "ipfs://x",
+        { value: quote }
+      );
+      await expect(tx).to.emit(insurance, "PolicyCreated");
+      const id = await insurance.currentPolicyId();
+      const p = await insurance.getPolicy(id);
+      expect(p.coverageMask).to.equal(0x1F);
+      expect(p.metadata).to.equal("ipfs://x");
+    });
+
+    it("rejects ArbitrationRisk bit in main policy", async () => {
+      const maskWithArb = 0x1F | (1 << 5);
+      await expect(
+        insurance.connect(buyer).buyPolicy(await seller.getAddress(), 1000, maskWithArb, 3600, "")
+      ).to.be.revertedWith("Zeus: arbitration is separate product");
+    });
+
+    it("applies penalty score to premium", async () => {
+      const amount = ethers.parseEther("1");
+      await insurance.setPenaltyScore(await agent.getAddress(), 20_000);
+      const base = await insurance.quote(0x1F, ethers.ZeroAddress, amount);
+      const withPenalty = await insurance.quote(0x1F, await agent.getAddress(), amount);
+      expect(withPenalty).to.equal(base * 2n);
+    });
+
+    it("pays out via oracle claim", async () => {
+      const amount = ethers.parseEther("1");
+      const quote = await insurance.quote(0x1F, await buyer.getAddress(), amount);
+      await insurance.connect(buyer).buyAllInclusivePolicy(
+        await seller.getAddress(), amount, 3600, "", { value: quote }
+      );
+      const id = await insurance.currentPolicyId();
+      const before = await ethers.provider.getBalance(await buyer.getAddress());
+      await insurance.connect(oracle).claim(id, await buyer.getAddress(), amount);
+      const after = await ethers.provider.getBalance(await buyer.getAddress());
+      expect(after - before).to.equal(amount);
+    });
+  });
+
+  describe("ZeusEscrowBOT", () => {
+    it("creates a classic escrow and releases", async () => {
+      const amount = ethers.parseEther("1");
+      const tx = escrow.connect(buyer).createClassicEscrow(
+        await executor.getAddress(), amount, 3600, { value: amount }
+      );
+      await expect(tx).to.emit(escrow, "EscrowCreated");
+      const id = await escrow.currentEscrowId();
+      await escrow.connect(buyer).release(id);
+      const e = await escrow.getEscrow(id);
+      expect(e.status).to.equal(2);
+    });
+
+    it("creates a MultiSig escrow and releases after threshold", async () => {
+      const amount = ethers.parseEther("1");
+      const [, s1, s2] = await ethers.getSigners();
+      await escrow.connect(buyer).createMultiSigEscrow(
+        await executor.getAddress(), amount, 3600, [await s1.getAddress(), await s2.getAddress()], 2,
+        { value: amount }
+      );
+      const id = await escrow.currentEscrowId();
+      await escrow.connect(s1).sign(id);
+      await escrow.connect(s2).sign(id);
+      await escrow.connect(executor).release(id);
+      const e = await escrow.getEscrow(id);
+      expect(e.status).to.equal(2);
+    });
+
+    it("creates a recurring escrow and enforces interval", async () => {
+      const amount = ethers.parseEther("0.1");
+      await escrow.connect(buyer).createRecurringEscrow(
+        await executor.getAddress(), amount, 3600, 3600, { value: amount }
+      );
+      const id = await escrow.currentEscrowId();
+      await expect(escrow.connect(executor).release(id)).to.be.revertedWith("ZE: too early");
+      await network.provider.send("evm_increaseTime", [3600]);
+      await network.provider.send("evm_mine");
+      await escrow.connect(executor).release(id);
+    });
+
+    it("creates a conditional escrow resolved by oracle", async () => {
+      const amount = ethers.parseEther("1");
+      const condHash = ethers.id("okx-ai-condition-1");
+      await escrow.connect(buyer).createConditionalEscrow(
+        await executor.getAddress(), amount, 3600, condHash, { value: amount }
+      );
+      const id = await escrow.currentEscrowId();
+      await escrow.connect(oracle).resolveCondition(id, true, condHash);
+      const e = await escrow.getEscrow(id);
+      expect(e.status).to.equal(2);
+    });
+  });
+
+  describe("ZeusArbitrationRisk", () => {
+    beforeEach(impersonateXLayer);
+    afterEach(restoreChainId);
+
+    it("buys arbitration insurance and pays out", async () => {
+      const amount = ethers.parseEther("1");
+      const premium = await arbitration.quote(amount);
+      expect(premium).to.equal(amount * 800n / 10_000n);
+
+      const caseId = ethers.id("okx-case-42");
+      await arbitration.connect(buyer).buyArbitrationInsurance(amount, caseId, 3600, { value: premium });
+      const id = await arbitration.arbPolicies(0).then(() => 0);
+      const before = await ethers.provider.getBalance(await buyer.getAddress());
+      await arbitration.connect(oracle).claimArbitrationPayout(id);
+      const after = await ethers.provider.getBalance(await buyer.getAddress());
+      expect(after - before).to.equal(amount);
+    });
+  });
+});
+🛠️ КОМАНДА ДЛЯ REPLIT (СКОПИРУЙТЕ)
+bash
+# Переключиться в ветку
+git checkout feature/okx-ai-all-inclusive || git checkout -b feature/okx-ai-all-inclusive
+
+# Скопировать все файлы выше в соответствующие папки
+# (каждый файл — в свою папку)
+
+# Установить зависимости
+pnpm install
+
+# Собрать
+pnpm build
+
+# Запустить тесты
+cd contracts && npx hardhat test
+
+# Если всё зелёное — запушить
+git add .
+git commit -m "feat: OKX AI + All-inclusive + Escrow upgrade (Z.ai implementation)"
+git push origin feature/okx-ai-all-inclusive
