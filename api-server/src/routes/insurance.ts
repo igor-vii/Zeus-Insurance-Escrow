@@ -74,7 +74,7 @@ router.post("/prepare-buy", async (req, res) => {
   try {
     const history = await getSellerHistory(seller);
     riskScore = await calculateRiskScore(seller, amountBigInt, maxRetries, history);
-    premiumAmount = await calculatePremium(amountBigInt, riskScore);
+    premiumAmount = await calculatePremium(amountBigInt, riskScore, history);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: "Failed to calculate risk score", detail: msg });

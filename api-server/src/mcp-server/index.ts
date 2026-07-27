@@ -62,7 +62,7 @@ function buildMcpServer(): McpServer {
       try {
         const history = await getSellerHistory(seller);
         const riskScore = await calculateRiskScore(seller, amountBigInt, maxRetries, history);
-        const premiumAmount = await calculatePremium(amountBigInt, riskScore);
+        const premiumAmount = await calculatePremium(amountBigInt, riskScore, history);
         return ok({ riskScore: parseFloat(riskScore.toFixed(4)), premiumAmount: premiumAmount.toString() });
       } catch (e) {
         return err("Failed to calculate quote", e);
@@ -86,7 +86,7 @@ function buildMcpServer(): McpServer {
         const amountBigInt = BigInt(amount);
         const history = await getSellerHistory(seller);
         const riskScore = await calculateRiskScore(seller, amountBigInt, maxRetries, history);
-        const premiumAmount = await calculatePremium(amountBigInt, riskScore);
+        const premiumAmount = await calculatePremium(amountBigInt, riskScore, history);
         const data = encodeFunctionData({
           abi: ZEUS_INSURANCE_ABI,
           functionName: "buyInsurance",

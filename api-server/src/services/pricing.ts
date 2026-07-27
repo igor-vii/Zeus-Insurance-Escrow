@@ -122,11 +122,34 @@ export async function calculateRiskScore(
 
 // ── Premium ───────────────────────────────────────────────────────────────────
 
+const MIN_PREMIUM = 20_000n;          // $0.02 USDC (6 decimals)
+const SMALL_POLICY_THRESHOLD = 1_000_000n; // $1.00 USDC
+
 /**
- * Calculate premium based on amount and Risk Score.
- * Formula: amount × (0.05 + 0.01 × riskScore)
+ * Base rate tier based on seller's policy history.
+ *
+ * totalPolicies === 0  → 15%  (new seller, no track record)
+ * totalPolicies < 25   → 10%  (early track record)
+ * totalPolicies < 50   → 10%  (growing track record)
+ * totalPolicies >= 50  → 7%   (established seller)
  */
-export async function calculatePremium(amount: bigint, riskScore: number): Promise<bigint> {
+export function getBaseRate(history: SellerHistory): number {
+  if (history.totalPolicies === 0) return 0.15;
+  if (history.totalPolicies >= 50)  return 0.07;
+  return 0.10;
+}
+
+/**
+ * Calculate premium based on amount, Risk Score, and seller history.
+ * Formula: amount × getBaseRate(history) × (0.5 + 0.1 × riskScore)
+ *
+ * Minimum premium: $0.02 for policies with amount < $1.
+ */
+export async function calculatePremium(
+  amount: bigint,
+  riskScore: number,
+  history: SellerHistory,
+): Promise<bigint> {
   if (amount <= 0n) {
     throw new Error("Amount must be greater than 0");
   }
@@ -134,9 +157,17 @@ export async function calculatePremium(amount: bigint, riskScore: number): Promi
     throw new Error("Risk score must be between 0.1 and 5.0");
   }
 
-  // (0.05 + 0.01 * riskScore) * 10000 → integer multiplier for BigInt arithmetic
-  const multiplier = Math.round((5 + riskScore) * 100);
-  return (amount * BigInt(multiplier)) / 10_000n;
+  const baseRate = getBaseRate(history);
+  // baseRate × (0.5 + 0.1 × riskScore) × 10_000 → integer multiplier
+  const multiplier = Math.round(baseRate * (0.5 + 0.1 * riskScore) * 10_000);
+  let premium = (amount * BigInt(multiplier)) / 10_000n;
+
+  // Apply minimum premium of $0.02 for small policies (amount < $1)
+  if (amount < SMALL_POLICY_THRESHOLD && premium < MIN_PREMIUM) {
+    premium = MIN_PREMIUM;
+  }
+
+  return premium;
 }
 
 // ── Risk Score Update ─────────────────────────────────────────────────────────

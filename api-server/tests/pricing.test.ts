@@ -8,11 +8,114 @@ import {
   fetchHumi,
   getHumiMultiplier,
   calculateRiskScore,
+  getBaseRate,
+  calculatePremium,
   type SellerHistory,
 } from "../src/services/pricing.js";
 
 const VALID_ADDR = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
 const ZERO_HISTORY: SellerHistory = { totalPolicies: 0, failedPolicies: 0, avgRiskScore: 0 };
+
+// ── getBaseRate ───────────────────────────────────────────────────────────────
+describe("getBaseRate", () => {
+  const cases: [number, number][] = [
+    [0,  0.15],  // no history → 15%
+    [1,  0.10],  // < 25 → 10%
+    [24, 0.10],
+    [25, 0.10],  // 25–49 → 10%
+    [49, 0.10],
+    [50, 0.07],  // >= 50 → 7%
+    [100,0.07],
+  ];
+
+  for (const [totalPolicies, expected] of cases) {
+    test(`totalPolicies=${totalPolicies} → baseRate=${expected}`, () => {
+      const history: SellerHistory = { totalPolicies, failedPolicies: 0, avgRiskScore: 0 };
+      assert.equal(getBaseRate(history), expected);
+    });
+  }
+});
+
+// ── calculatePremium ──────────────────────────────────────────────────────────
+describe("calculatePremium", () => {
+  beforeEach(() => { mock.restoreAll(); });
+
+  const h0:  SellerHistory = { totalPolicies: 0,   failedPolicies: 0, avgRiskScore: 0 };
+  const h30: SellerHistory = { totalPolicies: 30,  failedPolicies: 0, avgRiskScore: 0 };
+  const h50: SellerHistory = { totalPolicies: 50,  failedPolicies: 0, avgRiskScore: 0 };
+
+  test("new seller (0 policies, rate=15%), riskScore=1.0, amount=$1", async () => {
+    // multiplier = round(0.15 * 0.6 * 10_000) = 900
+    // premium = 1_000_000 * 900 / 10_000 = 90_000
+    const p = await calculatePremium(1_000_000n, 1.0, h0);
+    assert.equal(p, 90_000n);
+  });
+
+  test("early seller (30 policies, rate=10%), riskScore=1.0, amount=$1", async () => {
+    // multiplier = round(0.10 * 0.6 * 10_000) = 600
+    // premium = 1_000_000 * 600 / 10_000 = 60_000
+    const p = await calculatePremium(1_000_000n, 1.0, h30);
+    assert.equal(p, 60_000n);
+  });
+
+  test("established seller (50 policies, rate=7%), riskScore=1.0, amount=$1", async () => {
+    // multiplier = round(0.07 * 0.6 * 10_000) = 420
+    // premium = 1_000_000 * 420 / 10_000 = 42_000
+    const p = await calculatePremium(1_000_000n, 1.0, h50);
+    assert.equal(p, 42_000n);
+  });
+
+  test("rate=7%, riskScore=5.0 (max), amount=$1", async () => {
+    // multiplier = round(0.07 * 1.0 * 10_000) = 700
+    // premium = 1_000_000 * 700 / 10_000 = 70_000
+    const p = await calculatePremium(1_000_000n, 5.0, h50);
+    assert.equal(p, 70_000n);
+  });
+
+  test("min premium enforced: small policy ($0.10) with low risk yields $0.02", async () => {
+    // amount=100_000 (<$1), rate=0.07, riskScore=1.0
+    // calculated = 100_000 * 420 / 10_000 = 4_200 < MIN_PREMIUM(20_000)
+    const p = await calculatePremium(100_000n, 1.0, h50);
+    assert.equal(p, 20_000n);
+  });
+
+  test("min premium not applied: small policy with high enough rate exceeds $0.02", async () => {
+    // amount=500_000 ($0.50 < $1), rate=0.15, riskScore=5.0
+    // multiplier = round(0.15 * 1.0 * 10_000) = 1500
+    // calculated = 500_000 * 1500 / 10_000 = 75_000 > 20_000 → no min
+    const p = await calculatePremium(500_000n, 5.0, h0);
+    assert.equal(p, 75_000n);
+  });
+
+  test("min premium not applied: amount >= $1 even if calculated < $0.02", async () => {
+    // amount=1_000_000 (=$1, not < threshold), rate=0.07, riskScore=0.1
+    // multiplier = round(0.07 * 0.51 * 10_000) = round(357) = 357
+    // calculated = 1_000_000 * 357 / 10_000 = 35_700 > 20_000 anyway
+    const p = await calculatePremium(1_000_000n, 0.1, h50);
+    assert.equal(p, 35_700n);
+  });
+
+  test("throws on zero amount", async () => {
+    await assert.rejects(
+      () => calculatePremium(0n, 1.0, h0),
+      /Amount must be greater than 0/,
+    );
+  });
+
+  test("throws on riskScore below 0.1", async () => {
+    await assert.rejects(
+      () => calculatePremium(1_000_000n, 0.05, h0),
+      /Risk score must be between 0.1 and 5.0/,
+    );
+  });
+
+  test("throws on riskScore above 5.0", async () => {
+    await assert.rejects(
+      () => calculatePremium(1_000_000n, 5.1, h0),
+      /Risk score must be between 0.1 and 5.0/,
+    );
+  });
+});
 
 // ── fetchHumi ─────────────────────────────────────────────────────────────────
 describe("fetchHumi", () => {
