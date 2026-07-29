@@ -1,6 +1,7 @@
+cat > netlify.toml << 'EOF'
 [build]
   command = "pnpm install && pnpm --filter @workspace/frontend run build"
-  publish = "artifacts/frontend/dist/public"
+  publish = "frontend/dist/public"
 
 [build.environment]
   NODE_VERSION  = "20"
@@ -13,3 +14,4 @@
   from   = "/*"
   to     = "/index.html"
   status = 200
+EOF
