@@ -1,5 +1,5 @@
 import { z } from "zod";
-export declare const NetworkSchema: z.ZodEnum<["mainnet", "base-mainnet", "base-sepolia", "sepolia", "localhost", "x-layer"]>;
+export declare const NetworkSchema: z.ZodEnum<["mainnet", "base-mainnet", "base-sepolia", "sepolia", "localhost", "x-layer", "bot-chain"]>;
 export type Network = z.infer<typeof NetworkSchema>;
 export interface NetworkConfig {
     name: string;
