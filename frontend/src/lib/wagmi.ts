@@ -1,6 +1,7 @@
 import { createConfig, http } from "wagmi";
 import { baseSepolia } from "wagmi/chains";
 import { coinbaseWallet, injected, walletConnect } from "wagmi/connectors";
+import { xLayer, botChain } from "@/lib/chains";
 
 /**
  * WalletConnect v2 requires a projectId from https://cloud.walletconnect.com
@@ -23,10 +24,12 @@ const connectors = [
 ];
 
 export const wagmiConfig = createConfig({
-  chains: [baseSepolia],
+  // X Layer Mainnet is the primary/default chain; Base Sepolia and BOT Chain also supported
+  chains: [xLayer, botChain, baseSepolia],
   connectors,
   transports: {
-    // Official Base Sepolia RPC — pagination in getLogs handles the 2 000-block limit
-    [baseSepolia.id]: http("https://sepolia.base.org"),
+    [xLayer.id]:       http("https://rpc.xlayer.tech"),
+    [botChain.id]:     http("https://rpc.botchain.ai"),
+    [baseSepolia.id]:  http("https://sepolia.base.org"),
   },
 });

@@ -10,6 +10,7 @@ export const NetworkSchema = z.enum([
   "sepolia",
   "localhost",
   "x-layer",
+  "bot-chain",
 ]);
 export type Network = z.infer<typeof NetworkSchema>;
 
@@ -82,6 +83,15 @@ export const NETWORKS: Record<Network, NetworkConfig> = {
     reserveAddress: "0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c",
     usdcAddress: "0x74b7f16337b8972027f6196a17a631ac6de26d22",
     rpcUrl: "https://rpc.xlayer.tech",
+  },
+  "bot-chain": {
+    name: "bot-chain",
+    chainId: 677,
+    escrowAddress: "0x0d4AD4C6b60F445d0e478E0AF48075340AC51Cf5",
+    insuranceAddress: "0x8D10C2c6C92b613C1938fe532f0e391044e76188",
+    reserveAddress: "0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c",
+    usdcAddress: "0xaBabc7Ddc03e501d190C676BF3d92ef0e6e87a3C",
+    rpcUrl: "https://rpc.botchain.ai",
   },
 };
 

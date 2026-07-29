@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useConnect, useAccount, useSwitchChain } from "wagmi";
 import { coinbaseWallet, injected, walletConnect } from "wagmi/connectors";
-import { baseSepolia } from "wagmi/chains";
+import { xLayer, SUPPORTED_CHAIN_IDS } from "@/lib/chains";
 import { Wallet, X, Loader2, ExternalLink, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -57,7 +57,7 @@ export function WalletModal({ trigger, className }: WalletModalProps) {
   const { isConnected, chainId } = useAccount();
   const { switchChain, isPending: isSwitching, error: switchError } = useSwitchChain();
 
-  const isWrongNetwork = isConnected && chainId !== baseSepolia.id;
+  const isWrongNetwork = isConnected && !SUPPORTED_CHAIN_IDS.has(chainId);
 
   const connectingId = variables?.connector
     ? (variables.connector as { id?: string }).id
@@ -116,7 +116,7 @@ export function WalletModal({ trigger, className }: WalletModalProps) {
       { connector: option.connector },
       {
         onSuccess: (data) => {
-          if (data.chainId !== baseSepolia.id) {
+          if (!SUPPORTED_CHAIN_IDS.has(data.chainId)) {
             setView("switch-network");
           } else {
             closeModal();
@@ -131,7 +131,7 @@ export function WalletModal({ trigger, className }: WalletModalProps) {
 
   function handleSwitchNetwork() {
     switchChain(
-      { chainId: baseSepolia.id },
+      { chainId: xLayer.id },
       {
         onSuccess: () => closeModal(),
       },
@@ -207,7 +207,7 @@ export function WalletModal({ trigger, className }: WalletModalProps) {
 
                 <div className="px-5 py-3 border-t border-border/50 text-center">
                   <p className="text-[10px] text-muted-foreground/60 font-mono">
-                    Base Sepolia Testnet · Chain ID 84532
+                    X Layer · BOT Chain · Base Sepolia
                   </p>
                 </div>
               </>
@@ -240,7 +240,9 @@ export function WalletModal({ trigger, className }: WalletModalProps) {
                       Wallet connected to wrong network
                     </p>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Zeus Insurance runs on <span className="text-foreground font-medium">Base Sepolia</span> (chain ID 84532).
+                      Zeus Insurance runs on <span className="text-foreground font-medium">X Layer Mainnet</span>,{" "}
+                      <span className="text-foreground font-medium">BOT Chain</span>, or{" "}
+                      <span className="text-foreground font-medium">Base Sepolia</span>.
                       Switch your wallet to continue.
                     </p>
                   </div>
@@ -248,7 +250,7 @@ export function WalletModal({ trigger, className }: WalletModalProps) {
                   {/* Target network pill */}
                   <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50 border border-border text-xs font-mono">
                     <div className="w-2 h-2 rounded-full bg-primary" />
-                    Base Sepolia · Chain 84532
+                    X Layer Mainnet · Chain 196
                     <CheckCircle2 className="w-3.5 h-3.5 text-primary ml-1" />
                   </div>
 

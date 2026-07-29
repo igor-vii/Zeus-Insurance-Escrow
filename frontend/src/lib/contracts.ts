@@ -1,16 +1,20 @@
-// ─── Deployed contract addresses (Base Sepolia testnet) ──────────────────────
-export const ZEUS_INSURANCE_ADDRESS =
-  "0x1d9D90d2652296A2c89E3802d45B1F2132b30076" as const;
+// ─── Deployed contract addresses ─────────────────────────────────────────────
+// Default = X Layer Mainnet (chain 196). Use getChainContracts(chainId) for
+// chain-aware lookups in multi-chain contexts.
+export { getChainContracts } from "@/lib/chains";
 
-/** First block to scan for PolicyCreated logs (ZeusInsuranceV2 deploy block on Base Sepolia). */
-export const INSURANCE_DEPLOY_BLOCK = 44_313_000n;
+export const ZEUS_INSURANCE_ADDRESS =
+  "0x8D10C2c6C92b613C1938fe532f0e391044e76188" as const;
+
+/** First block to scan for PolicyCreated logs on X Layer Mainnet. */
+export const INSURANCE_DEPLOY_BLOCK = 1n;
 
 export const ZEUS_RESERVE_ADDRESS =
-  "0xF5010Afe1856be1F447f962Dfa8AA30c2Ed19a47" as const;
+  "0xadED902c2C6dD7D1B5b72A6a0A3358a9b9d4A79c" as const;
 
-// USDC on Base Sepolia (6 decimals) — 0x036CbD53842c5426634e7929541eC2318f3dCF7e
+// USDC on X Layer Mainnet (6 decimals)
 export const USDC_ADDRESS =
-  "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as const;
+  "0x74b7f16337b8972027f6196a17a631ac6de26d22" as const;
 
 // ─── ZeusInsuranceV2 ABI ─────────────────────────────────────────────────────
 export const ZEUS_INSURANCE_ABI = [

@@ -1,15 +1,15 @@
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
-import { baseSepolia } from "wagmi/chains";
 import { AlertTriangle, ArrowRightLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
+import { SUPPORTED_CHAIN_IDS, DEFAULT_CHAIN, xLayer } from "@/lib/chains";
 
 export function NetworkGuard() {
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain, isPending } = useSwitchChain();
 
-  const isWrongNetwork = isConnected && chainId !== baseSepolia.id;
+  const isWrongNetwork = isConnected && !SUPPORTED_CHAIN_IDS.has(chainId);
 
   return (
     <AnimatePresence>
@@ -30,7 +30,7 @@ export function NetworkGuard() {
                 </p>
                 <p className="text-sm text-foreground/90">
                   Zeus Insurance requires{" "}
-                  <span className="font-semibold font-mono">Base Sepolia</span>.
+                  <span className="font-semibold font-mono">X Layer, BOT Chain, or Base Sepolia</span>.
                   Your wallet is on chain&nbsp;
                   <span className="font-mono text-muted-foreground">{chainId}</span>.
                 </p>
@@ -39,7 +39,7 @@ export function NetworkGuard() {
                 size="sm"
                 variant="destructive"
                 className="shrink-0 font-mono text-[10px] uppercase tracking-wider h-8 gap-1.5"
-                onClick={() => switchChain({ chainId: baseSepolia.id })}
+                onClick={() => switchChain({ chainId: xLayer.id })}
                 disabled={isPending}
               >
                 {isPending ? (

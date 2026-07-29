@@ -13,6 +13,8 @@ const XLAYER_MAINNET_RPC_URL =
   process.env.XLAYER_MAINNET_RPC_URL ?? "https://rpc.xlayer.tech";
 const XLAYER_TESTNET_RPC_URL =
   process.env.XLAYER_TESTNET_RPC_URL ?? "https://testrpc.xlayer.tech";
+const BOTCHAIN_MAINNET_RPC_URL =
+  process.env.BOTCHAIN_MAINNET_RPC_URL ?? "https://rpc.botchain.ai";
 const BASESCAN_API_KEY =
   process.env.ETHERSCAN_API_KEY ?? process.env.BASESCAN_API_KEY ?? "";
 const OKLINK_API_KEY = process.env.OKLINK_API_KEY ?? "";
@@ -58,6 +60,11 @@ const config: HardhatUserConfig = {
       url: XLAYER_TESTNET_RPC_URL,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
       chainId: 195,
+    },
+    "bot-chain": {
+      url: BOTCHAIN_MAINNET_RPC_URL,
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+      chainId: 677,
     },
   },
   etherscan: {

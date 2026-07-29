@@ -30,7 +30,7 @@ const isEthAddress = (val: string): boolean => isAddress(val);
 
 const formSchema = z.object({
   sellerAddress: z.string().refine(isEthAddress, { message: "Invalid Ethereum address" }),
-  amount: z.coerce.number().min(1, "Amount must be at least 1 USDC"),
+  amount: z.coerce.number().min(0.001, "Amount must be at least 0.001 USDC"),
   timeoutSeconds: z.coerce.number().min(60, "Timeout must be at least 60 seconds"),
   retries: z.coerce.number().min(1).max(10),
 });
@@ -210,7 +210,7 @@ export default function BuyInsurance() {
                     <FormItem>
                       <FormLabel className="font-mono uppercase text-xs tracking-wider text-muted-foreground">Insured Amount (USDC)</FormLabel>
                       <FormControl>
-                        <Input type="number" min="1" className="font-mono bg-background/50" {...field} />
+                        <Input type="number" min="0.001" step="0.001" className="font-mono bg-background/50" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
