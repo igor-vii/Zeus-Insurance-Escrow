@@ -1,4 +1,3 @@
-cat > netlify.toml << 'EOF'
 [build]
   command = "pnpm install && pnpm --filter @workspace/frontend run build"
   publish = "frontend/dist/public"
@@ -14,4 +13,3 @@ cat > netlify.toml << 'EOF'
   from   = "/*"
   to     = "/index.html"
   status = 200
-EOF
